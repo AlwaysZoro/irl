@@ -8,14 +8,12 @@ from aiohttp import web
 from pytz import timezone
 from datetime import datetime
 import asyncio
-from plugins.web_support import web_server
+from route import web_server  # <--- FIXED IMPORT
 import pyromod
 
 logging.config.fileConfig("logging.conf")
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
-
-
 
 class Bot(Client):
     def __init__(self):
