@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import warnings
+import pyrogram # <--- ADDED: Required for pyrogram.utils access
 from pyrogram import Client, idle, __version__
 from pyrogram.raw.all import layer
 from config import Config
@@ -8,12 +9,22 @@ from aiohttp import web
 from pytz import timezone
 from datetime import datetime
 import asyncio
-from route import web_server  # <--- FIXED IMPORT
+from route import web_server
 import pyromod
 
+# Explicitly set the channel ID fix
 pyrogram.utils.MIN_CHANNEL_ID = -1003512136864
 
-logging.config.fileConfig("logging.conf")
+# Robust Logging Setup
+if "logging.conf" in Config.__dict__:
+    logging.config.fileConfig("logging.conf")
+else:
+    # Fallback if config file is missing
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
 
@@ -49,8 +60,8 @@ class Bot(Client):
                     Config.LOG_CHANNEL,
                     f"**__{me.mention} Iꜱ Rᴇsᴛᴀʀᴛᴇᴅ !!**\n\n📅 Dᴀᴛᴇ : `{date}`\n⏰ Tɪᴍᴇ : `{time}`",
                 )
-            except:
-                print("Log Channel Error: Make sure bot is admin in Log Channel")
+            except Exception as e:
+                print(f"Log Channel Error: {e}")
 
     async def stop(self, *args):
         await super().stop()
