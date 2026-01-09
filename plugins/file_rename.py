@@ -47,23 +47,22 @@ def extract_quality(filename):
     match5 = re.search(pattern5, filename)
     if match5: 
         quality = match5.group(1) or match5.group(2)
-        # Keep resolutions like 1080p, 720p, 480p in lowercase 'p'
-        return quality.lower()  # Returns: 1080p, 720p, 480p, etc.
+        return quality.lower()
     
     match6 = re.search(pattern6, filename)
-    if match6: return "4K"  # 4K in uppercase
+    if match6: return "4K"
     
     match7 = re.search(pattern7, filename)
-    if match7: return "2K"  # 2K in uppercase
+    if match7: return "2K"
     
     match8 = re.search(pattern8, filename)
-    if match8: return "HDRIP"  # HDRIP in uppercase
+    if match8: return "HDRIP"
     
     match9 = re.search(pattern9, filename)
-    if match9: return "4Kx264"  # 4Kx264
+    if match9: return "4Kx264"
     
     match10 = re.search(pattern10, filename)
-    if match10: return "4Kx265"  # 4Kx265
+    if match10: return "4Kx265"
     
     return "Unknown"
 
@@ -115,11 +114,30 @@ async def auto_rename_files(client, message):
     global QUEUE_TASK_RUNNING
     
     user_id = message.from_user.id
-    format_template = await ZoroBhaiya.get_format_template(user_id)
-    if not format_template:
+    
+    # CRITICAL FIX: Check if format exists with better error handling
+    try:
+        format_template = await ZoroBhaiya.get_format_template(user_id)
+        logger.info(f"User {user_id} format template: {format_template}")
+    except Exception as e:
+        logger.error(f"Error fetching format for user {user_id}: {e}")
+        format_template = None
+    
+    # Check if format is None, empty string, or whitespace
+    if not format_template or not format_template.strip():
+        logger.warning(f"User {user_id} has no format template set")
         return await message.reply_text(
-            "**Please Set An Auto Rename Format First Using /autorename**\n\n"
-            "Example: `/autorename S{season}E{episode} - [{quality}]`"
+            "**❌ Please Set An Auto Rename Format First!**\n\n"
+            "**Use:** `/autorename [format]`\n\n"
+            "**Example:**\n"
+            "`/autorename S{season}E{episode} - [{quality}]`\n\n"
+            "**Available Placeholders:**\n"
+            "• `{episode}` - Episode number\n"
+            "• `{season}` - Season number\n"
+            "• `{quality}` - Video quality\n\n"
+            "**More Examples:**\n"
+            "`/autorename Naruto S{season}E{episode} [{quality}]`\n"
+            "`/autorename {season}x{episode} {quality}`"
         )
 
     # Start queue processor if not running
@@ -168,7 +186,7 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
         
         if "time=" in line_str and duration > 0:
             current_time = time.time()
-            if current_time - last_update > 3:  # Update every 3 seconds
+            if current_time - last_update > 3:
                 try:
                     time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
                     if time_match:
@@ -200,7 +218,21 @@ async def start_processing(client, message):
     download_msg = None
     
     try:
-        format_template = await ZoroBhaiya.get_format_template(user_id)
+        # CRITICAL FIX: Re-fetch format with error handling
+        try:
+            format_template = await ZoroBhaiya.get_format_template(user_id)
+            logger.info(f"Processing file for user {user_id} with format: {format_template}")
+        except Exception as e:
+            logger.error(f"Error fetching format during processing for user {user_id}: {e}")
+            format_template = None
+        
+        # Double-check format exists (shouldn't happen but safety check)
+        if not format_template or not format_template.strip():
+            logger.error(f"Format lost during processing for user {user_id}")
+            return await message.reply_text(
+                "**❌ Error:** Format template lost during processing. Please set it again with `/autorename`"
+            )
+        
         media_preference = await ZoroBhaiya.get_media_preference(user_id)
 
         # File Type & ID Logic
@@ -234,18 +266,37 @@ async def start_processing(client, message):
         # Extract metadata from filename
         episode_number = extract_episode_number(file_name)
         season_number = extract_season_number(file_name)
-        quality = extract_quality(file_name)  # Returns: 1080p, 720p, 480p, 4K, 2K, HDRIP, 4Kx264, 4Kx265
+        quality = extract_quality(file_name)
+        
+        logger.info(f"Extracted metadata - Episode: {episode_number}, Season: {season_number}, Quality: {quality}")
 
-        # Replace placeholders in template
+        # CRITICAL FIX: Replace placeholders with proper defaults
         renamed_template = format_template
-        if episode_number:
-            renamed_template = renamed_template.replace("{episode}", str(episode_number))
-        if season_number:
-            renamed_template = renamed_template.replace("{season}", str(season_number))
-        renamed_template = renamed_template.replace("{quality}", quality)
+        
+        # Replace {episode} - if not found, keep placeholder or use "XX"
+        if "{episode}" in renamed_template:
+            if episode_number:
+                renamed_template = renamed_template.replace("{episode}", str(episode_number).zfill(2))
+            else:
+                # Keep literal {episode} or replace with default
+                renamed_template = renamed_template.replace("{episode}", "XX")
+        
+        # Replace {season} - if not found, keep placeholder or use "01"
+        if "{season}" in renamed_template:
+            if season_number:
+                renamed_template = renamed_template.replace("{season}", str(season_number).zfill(2))
+            else:
+                # Default to Season 01 if not found
+                renamed_template = renamed_template.replace("{season}", "01")
+        
+        # Replace {quality} - always has a value (at least "Unknown")
+        if "{quality}" in renamed_template:
+            renamed_template = renamed_template.replace("{quality}", quality)
 
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
+        
+        logger.info(f"Renamed file: {renamed_file_name}")
         
         # Create unique paths
         timestamp = int(time.time())
