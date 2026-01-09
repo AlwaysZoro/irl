@@ -58,10 +58,7 @@ bot_instance = Bot()
 
 def main():
     async def start_services():
-        if Config.STRING_SESSION:
-            await asyncio.gather(app.start(), bot_instance.start())
-        else:
-            await asyncio.gather(bot_instance.start())
+        await asyncio.gather(bot_instance.start())
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(start_services())
