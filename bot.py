@@ -35,11 +35,11 @@ logger = logging.getLogger(__name__)
 class Bot(Client):
     def __init__(self):
         super().__init__(
-            name="AshutoshGoswami24",
+            name="ZoroBhaiya",
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
             bot_token=Config.BOT_TOKEN,
-            workers=50,  # Reduced from 200 for stability
+            workers=50,
             plugins={"root": "plugins"},
             sleep_threshold=15,
         )
