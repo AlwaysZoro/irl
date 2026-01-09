@@ -42,7 +42,6 @@ class Bot(Client):
             workers=50,  # Reduced from 200 for stability
             plugins={"root": "plugins"},
             sleep_threshold=15,
-            max_concurrent_transmissions=2,  # Limit concurrent uploads
         )
 
     async def start(self):
