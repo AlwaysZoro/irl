@@ -1,5 +1,5 @@
 from config import Config, Txt
-from helper.database import AshutoshGoswami24
+from helper.database import ZoroBhaiya
 from pyrogram.types import Message
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, InputUserDeactivated, UserIsBlocked, PeerIdInvalid
@@ -26,10 +26,10 @@ async def restart_bot(b, m):
 async def tutorial(bot, message):
     try:
         user_id = message.from_user.id
-        format_template = await AshutoshGoswami24.get_format_template(user_id)
+        format_template = await ZoroBhaiya.get_format_template(user_id)
         await message.reply_text(
             text=Txt.FILE_NAME_TXT.format(
-                format_template=format_template or "Default Template"
+                format_template=format_template or "Not Set - Use: /autorename [format]"
             ),
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
@@ -49,25 +49,25 @@ async def ping(_, message):
 
 @Client.on_message(filters.command(["stats", "status"]) & filters.user(Config.ADMIN))
 async def get_stats(bot, message):
-    total_users = await AshutoshGoswami24.total_users_count()
+    total_users = await ZoroBhaiya.total_users_count()
     start_t = time.time()
     st = await message.reply("**Accessing The Details.....**")
     end_t = time.time()
     time_taken_s = (end_t - start_t) * 1000
     await st.edit(
-        text=f"**--Bot Status--** \n\n**🐌 Current Ping :** `{time_taken_s:.3f} ms` \n**👭 Total Users :** `{total_users}`"
+        text=f"**--Bot Status--** \n\n**🌐 Current Ping :** `{time_taken_s:.3f} ms` \n**💭 Total Users :** `{total_users}`"
     )
 
 @Client.on_message(filters.command("broadcast") & filters.user(Config.ADMIN) & filters.reply)
 async def broadcast_handler(bot: Client, m: Message):
-    all_users = await AshutoshGoswami24.get_all_users()
+    all_users = await ZoroBhaiya.get_all_users()
     broadcast_msg = m.reply_to_message
     sts_msg = await m.reply_text("Broadcast Started..!")
     done = 0
     failed = 0
     success = 0
     start_time = time.time()
-    total_users = await AshutoshGoswami24.total_users_count()
+    total_users = await ZoroBhaiya.total_users_count()
     async for user in all_users:
         sts = await send_msg(user["_id"], broadcast_msg)
         if sts == 200:
@@ -75,7 +75,7 @@ async def broadcast_handler(bot: Client, m: Message):
         else:
             failed += 1
         if sts == 400:
-            await AshutoshGoswami24.delete_user(user["_id"])
+            await ZoroBhaiya.delete_user(user["_id"])
         done += 1
         if not done % 20:
             await sts_msg.edit(
@@ -83,7 +83,7 @@ async def broadcast_handler(bot: Client, m: Message):
             )
     completed_in = datetime.timedelta(seconds=int(time.time() - start_time))
     await sts_msg.edit(
-        f"Bʀᴏᴀᴅᴄᴀꜱᴛ Cᴏᴍᴩʟᴇᴛᴇᴅ: \nCᴏᴍᴩʟᴇᴛᴇᴅ Iɴ `{completed_in}`.\n\nTotal Users {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nFailed: {failed}"
+        f"BÊ€á´á´€á´…á´„á´€êœ±á´› Cá´á´á´©ÊŸá´‡á´›á´‡á´…: \nCá´á´á´©ÊŸá´‡á´›á´‡á´… IÉ´ `{completed_in}`.\n\nTotal Users {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nFailed: {failed}"
     )
 
 async def send_msg(user_id, message):
