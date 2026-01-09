@@ -1,29 +1,26 @@
-import aiohttp, asyncio, warnings, pytz
-from datetime import datetime, timedelta
-from pytz import timezone
-from pyrogram import Client, __version__
+import logging
+import logging.config
+import warnings
+from pyrogram import Client, idle, __version__
 from pyrogram.raw.all import layer
 from config import Config
 from aiohttp import web
-from route import web_server
-import pyrogram.utils
+from pytz import timezone
+from datetime import datetime
+import asyncio
+from plugins.web_support import web_server
 import pyromod
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import os
-import time
 
-pyrogram.utils.MIN_CHANNEL_ID = -1009147483647
+logging.config.fileConfig("logging.conf")
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("pyrogram").setLevel(logging.ERROR)
 
-# Setting SUPPORT_CHAT directly here
-SUPPORT_CHAT = int(os.environ.get("SUPPORT_CHAT", "-1001953724858"))
 
-PORT = Config.PORT
 
 class Bot(Client):
-
     def __init__(self):
         super().__init__(
-            name="codeflixbots",
+            name="AshutoshGoswami24",
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
             bot_token=Config.BOT_TOKEN,
@@ -31,47 +28,47 @@ class Bot(Client):
             plugins={"root": "plugins"},
             sleep_threshold=15,
         )
-        # Initialize the bot's start time for uptime calculation
-        self.start_time = time.time()
 
-    async def start(self, *args, **kwargs):
-        await super().start(*args, **kwargs)
+    async def start(self):
+        await super().start()
         me = await self.get_me()
         self.mention = me.mention
-        self.username = me.username  
-        self.uptime = Config.BOT_UPTIME     
-        if Config.WEBHOOK:
-            app = web.AppRunner(await web_server())
-            await app.setup()       
-            await web.TCPSite(app, "0.0.0.0", PORT).start()     
-        print(f"{me.first_name} Is Started.....✨️")
+        self.username = me.username
+        app = web.AppRunner(await web_server())
+        await app.setup()
+        bind_address = "0.0.0.0"
+        await web.TCPSite(app, bind_address, Config.PORT).start()
+        logging.info(f"{me.first_name} ✅✅ BOT started successfully ✅✅")
 
-        # Calculate uptime using timedelta
-        uptime_seconds = int(time.time() - self.start_time)
-        uptime_string = str(timedelta(seconds=uptime_seconds))
-
-        for chat_id in [Config.LOG_CHANNEL, SUPPORT_CHAT]:
+        if Config.LOG_CHANNEL:
             try:
                 curr = datetime.now(timezone("Asia/Kolkata"))
-                date = curr.strftime('%d %B, %Y')
-                time_str = curr.strftime('%I:%M:%S %p')
-                
-                # Send the message with the photo
-                await self.send_photo(
-                    chat_id=chat_id,
-                    photo=Config.START_PIC,
-                    caption=(
-                        "**ᴀɴʏᴀ ɪs ʀᴇsᴛᴀʀᴛᴇᴅ ᴀɢᴀɪɴ  !**\n\n"
-                        f"ɪ ᴅɪᴅɴ'ᴛ sʟᴇᴘᴛ sɪɴᴄᴇ​: `{uptime_string}`"
-                    ),
-                    reply_markup=InlineKeyboardMarkup(
-                        [[
-                            InlineKeyboardButton("ᴜᴘᴅᴀᴛᴇs", url="https://t.me/codeflix_bots")
-                        ]]
-                    )
+                date = curr.strftime("%d %B, %Y")
+                time = curr.strftime("%I:%M:%S %p")
+                await self.send_message(
+                    Config.LOG_CHANNEL,
+                    f"**__{me.mention} Iꜱ Rᴇsᴛᴀʀᴛᴇᴅ !!**\n\n📅 Dᴀᴛᴇ : `{date}`\n⏰ Tɪᴍᴇ : `{time}`",
                 )
+            except:
+                print("Log Channel Error: Make sure bot is admin in Log Channel")
 
-            except Exception as e:
-                print(f"Failed to send message in chat {chat_id}: {e}")
+    async def stop(self, *args):
+        await super().stop()
+        logging.info("Bot Stopped 🙄")
 
-Bot().run()
+bot_instance = Bot()
+
+def main():
+    async def start_services():
+        if Config.STRING_SESSION:
+            await asyncio.gather(app.start(), bot_instance.start())
+        else:
+            await asyncio.gather(bot_instance.start())
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_services())
+    loop.run_forever()
+
+if __name__ == "__main__":
+    warnings.filterwarnings("ignore", message="There is no current event loop")
+    main()
