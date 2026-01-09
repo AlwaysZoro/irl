@@ -13,22 +13,28 @@ import asyncio
 import traceback
 import math
 
-# --- QUEUE & PARALLEL CONTROL ---
+# --- QUEUE SYSTEM GLOBALS ---
 QUEUE = []
 ACTIVE_TASKS = 0
 MAX_CONCURRENT_TASKS = 2
 QUEUE_LOCK = asyncio.Lock()
-# --------------------------------
+# ----------------------------
 
 renaming_operations = {}
 
-# Regex Patterns
+# Pattern 1: S01E02 or S01EP02
 pattern1 = re.compile(r"S(\d+)(?:E|EP)(\d+)")
+# Pattern 2: S01 E02 or S01 EP02 or S01 - E01 or S01 - EP02
 pattern2 = re.compile(r"S(\d+)\s*(?:E|EP|-\s*EP)(\d+)")
+# Pattern 3: Episode Number After "E" or "EP"
 pattern3 = re.compile(r"(?:[([<{]?\s*(?:E|EP)\s*(\d+)\s*[)\]>}]?)")
+# Pattern 3_2: episode number after - [hyphen]
 pattern3_2 = re.compile(r"(?:\s*-\s*(\d+)\s*)")
+# Pattern 4: S2 09 ex.
 pattern4 = re.compile(r"S(\d+)[^\d]*(\d+)", re.IGNORECASE)
+# Pattern X: Standalone Episode Number
 patternX = re.compile(r"(\d+)")
+# QUALITY PATTERNS
 pattern5 = re.compile(r"\b(?:.*?(\d{3,4}[^\dp]*p).*?|.*?(\d{3,4}p))\b", re.IGNORECASE)
 pattern6 = re.compile(r"[([<{]?\s*4k\s*[)\]>}]?", re.IGNORECASE)
 pattern7 = re.compile(r"[([<{]?\s*2k\s*[)\]>}]?", re.IGNORECASE)
@@ -66,32 +72,41 @@ def extract_episode_number(filename):
     if match: return match.group(1)
     return None
 
-# --- QUEUE HANDLER ---
+async def time_formatter(milliseconds: int) -> str:
+    seconds, milliseconds = divmod(int(milliseconds), 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m {seconds}s"
+
 async def check_queue_and_process(client):
     global ACTIVE_TASKS
     async with QUEUE_LOCK:
         if ACTIVE_TASKS >= MAX_CONCURRENT_TASKS or not QUEUE:
             return
         
-        # Take next job
+        # Pop next task
         message = QUEUE.pop(0)
         ACTIVE_TASKS += 1
+
+    # Notify users about their new position
+    # (Optional: You can iterate queue and update waiting messages, but simpler is better for speed)
     
     try:
         await start_processing(client, message)
     except Exception as e:
-        print(f"Error in processing loop: {e}")
+        print(f"Queue Processing Error: {e}")
     finally:
         async with QUEUE_LOCK:
             ACTIVE_TASKS -= 1
-        # Trigger next check
-        asyncio.create_task(check_queue_and_process(client))
+        # Recursive call to pick up next in line
+        await check_queue_and_process(client)
 
 @Client.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def auto_rename_files(client, message):
-    user_id = message.from_user.id
+    global QUEUE
     
-    # Check settings first to avoid queueing invalid requests
+    # Check if user has settings first
+    user_id = message.from_user.id
     format_template = await AshutoshGoswami24.get_format_template(user_id)
     if not format_template:
         return await message.reply_text("Please Set An Auto Rename Format First Using /autorename")
@@ -99,14 +114,15 @@ async def auto_rename_files(client, message):
     # Add to Queue
     async with QUEUE_LOCK:
         QUEUE.append(message)
-        q_pos = len(QUEUE)
+        position = len(QUEUE)
     
+    # Check if we can run immediately or notify wait
     if ACTIVE_TASKS < MAX_CONCURRENT_TASKS:
+        # We can trigger the checker immediately
         asyncio.create_task(check_queue_and_process(client))
     else:
-        await message.reply_text(f"**⏳ Added to Queue.**\n**Position:** {q_pos}\n**Status:** Waiting for available slot...")
+        await message.reply_text(f"**⏳ Added to Queue.**\n**Position:** {position}\n**Status:** Waiting for open slot...")
 
-# --- MAIN LOGIC ---
 async def start_processing(client, message):
     user_id = message.from_user.id
     download_path = None
@@ -119,6 +135,7 @@ async def start_processing(client, message):
         format_template = await AshutoshGoswami24.get_format_template(user_id)
         media_preference = await AshutoshGoswami24.get_media_preference(user_id)
 
+        # File Type & ID Logic
         if message.document:
             file_id = message.document.file_id
             file_name = message.document.file_name
@@ -139,6 +156,7 @@ async def start_processing(client, message):
 
         if file_id in renaming_operations:
             return
+
         renaming_operations[file_id] = datetime.now()
 
         # Rename Logic
@@ -159,7 +177,7 @@ async def start_processing(client, message):
 
         download_msg = await message.reply_text("🚀 **Starting Download...**")
 
-        # 1. DOWNLOAD
+        # DOWNLOAD
         download_path = await client.download_media(
             message,
             file_name=renamed_path,
@@ -168,63 +186,69 @@ async def start_processing(client, message):
         )
         
         if not os.path.exists(renamed_path):
-            return await download_msg.edit("❌ Download Failed.")
+            return await download_msg.edit("❌ Download Failed: File not found.")
 
-        # 2. PROCESSING (Fixing the Freeze)
+        # --- FFMPEG PROCESSING ---
         await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
 
-        # Get Duration
+        metadata_cmd = [
+            '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
+            '-metadata', 'artist=Anime Atlas',
+            '-metadata', 'author=Anime Atlas',
+            '-metadata:s:v', 'title=Join Anime Atlas',
+            '-metadata:s:a', 'title=Anime Atlas',
+            '-metadata:s:s', 'title=Anime Atlas'
+        ]
+
+        watermark_text = "ANIME ATLAS"
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        drawtext_filter = f"drawtext=text='{watermark_text}':x=20:y=20:fontsize=28:fontcolor=white:fontfile={font_path}"
+
+        is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm']
+        
+        # Get Duration for Progress
         duration = 0
         try:
+            # Try to get duration from message first
             if message.video: duration = message.video.duration
             elif message.audio: duration = message.audio.duration
+            
+            # If failed, probe file
             if duration == 0:
-                # Probe duration if missing
-                proc = await asyncio.create_subprocess_exec(
+                probe = await asyncio.create_subprocess_exec(
                     "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", download_path,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
-                stdout, _ = await proc.communicate()
+                stdout, _ = await probe.communicate()
                 duration = float(stdout.decode().strip())
         except:
             duration = 0
 
-        # Build FFmpeg Command
-        metadata_cmd = [
-            '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
-            '-metadata', 'artist=Anime Atlas',
-            '-metadata', 'author=Anime Atlas'
-        ]
-        
-        watermark_text = "ANIME ATLAS"
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        drawtext = f"drawtext=text='{watermark_text}':x=20:y=20:fontsize=24:fontcolor=white:fontfile={font_path}"
-        
-        is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi']
-        
         cmd = ['ffmpeg', '-i', renamed_path]
+        
         if is_video:
             cmd.extend([
-                '-vf', drawtext,
-                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', # Fast encoding
-                '-c:a', 'copy', '-c:s', 'copy', '-map', '0'
+                '-vf', drawtext_filter,
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', # Optimized for speed
+                '-c:a', 'copy', '-c:s', 'copy',
+                '-map', '0'
             ])
         else:
             cmd.extend(['-c', 'copy', '-map', '0'])
-        
-        cmd.extend(metadata_cmd)
-        cmd.extend(['-y', processed_path])
 
-        # Execute Non-Blocking
+        cmd.extend(metadata_cmd)
+        cmd.extend(['-y', processed_path]) # Removing -loglevel error to get progress
+
+        # Run FFmpeg with Real-time Progress
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
 
-        # Monitor Progress
+        # Progress Loop
         start_time = time.time()
-        last_update = 0
+        last_update_time = 0
         
         while True:
             line = await process.stderr.readline()
@@ -233,66 +257,118 @@ async def start_processing(client, message):
             
             line_str = line.decode('utf-8', errors='ignore').strip()
             
-            # Progress update logic
+            # Parse time=00:00:00.00
             if "time=" in line_str and duration > 0:
-                now = time.time()
-                if now - last_update > 5: # Update every 5s
+                current_time = time.time()
+                if current_time - last_update_time > 5: # Update every 5 seconds
                     try:
                         time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
                         if time_match:
                             h, m, s = map(int, time_match.groups())
-                            secs = h*3600 + m*60 + s
-                            pct = int((secs / duration) * 100)
+                            seconds_done = h*3600 + m*60 + s
+                            percentage = int((seconds_done / duration) * 100)
                             
-                            # Simple Bar
-                            done = int((pct/100)*15)
-                            bar = "⬢"*done + "⬡"*(15-done)
+                            # Custom Progress Bar
+                            bar_len = 20
+                            filled = int((percentage / 100) * bar_len)
+                            bar = "⬢" * filled + "⬡" * (bar_len - filled)
                             
                             await download_msg.edit(
-                                f"**⚙️ Processing...**\n\n{bar}\n**Done:** {pct}%"
+                                f"**⚙️ Processing: Adding Watermark & Metadata...**\n\n"
+                                f"{bar}\n"
+                                f"**Progress:** {percentage}%\n"
+                                f"**Time:** {line_str.split('time=')[1].split()[0]}"
                             )
-                            last_update = now
+                            last_update_time = current_time
                     except:
                         pass
         
         await process.wait()
+        
+        if process.returncode != 0:
+            # Check if file was created anyway (some minor ffmpeg warnings trigger non-zero)
+            if not os.path.exists(processed_path):
+                await download_msg.edit("**❌ FFmpeg Failed.**")
+                return
 
-        # Fallback if processing failed
-        final_file_path = processed_path if os.path.exists(processed_path) else renamed_path
-
-        # 3. UPLOAD
+        # UPLOAD
         await download_msg.edit("**📤 Uploading...**")
         
+        final_file_path = processed_path if os.path.exists(processed_path) else renamed_path
+
         c_caption = await AshutoshGoswami24.get_caption(message.chat.id)
         c_thumb = await AshutoshGoswami24.get_thumbnail(message.chat.id)
 
-        caption = c_caption.format(filename=renamed_file_name, filesize=humanbytes(file_size), duration=convert(duration)) if c_caption else f"**{renamed_file_name}**"
+        caption = (
+            c_caption.format(
+                filename=renamed_file_name,
+                filesize=humanbytes(file_size),
+                duration=convert(duration),
+            )
+            if c_caption
+            else f"**{renamed_file_name}**"
+        )
 
         if c_thumb:
             thumb_path = await client.download_media(c_thumb)
             if thumb_path:
-                Image.open(thumb_path).convert("RGB").resize((320, 320)).save(thumb_path, "JPEG")
+                img = Image.open(thumb_path).convert("RGB")
+                img = img.resize((320, 320))
+                img.save(thumb_path, "JPEG")
         elif media_type == "video" and message.video.thumbs:
             thumb_path = await client.download_media(message.video.thumbs[0].file_id)
 
         try:
             if media_type == "document":
-                await client.send_document(message.chat.id, document=final_file_path, thumb=thumb_path, caption=caption, progress=progress_for_pyrogram, progress_args=("**📤 Uploading...**", download_msg, time.time()))
+                await client.send_document(
+                    message.chat.id,
+                    document=final_file_path,
+                    thumb=thumb_path,
+                    caption=caption,
+                    progress=progress_for_pyrogram,
+                    progress_args=("**📤 Uploading...**", download_msg, time.time()),
+                )
             elif media_type == "video":
-                await client.send_video(message.chat.id, video=final_file_path, caption=caption, thumb=thumb_path, duration=int(duration), progress=progress_for_pyrogram, progress_args=("**📤 Uploading...**", download_msg, time.time()))
+                await client.send_video(
+                    message.chat.id,
+                    video=final_file_path,
+                    caption=caption,
+                    thumb=thumb_path,
+                    duration=int(duration),
+                    progress=progress_for_pyrogram,
+                    progress_args=("**📤 Uploading...**", download_msg, time.time()),
+                )
             elif media_type == "audio":
-                await client.send_audio(message.chat.id, audio=final_file_path, caption=caption, thumb=thumb_path, duration=int(duration), progress=progress_for_pyrogram, progress_args=("**📤 Uploading...**", download_msg, time.time()))
+                await client.send_audio(
+                    message.chat.id,
+                    audio=final_file_path,
+                    caption=caption,
+                    thumb=thumb_path,
+                    duration=int(duration),
+                    progress=progress_for_pyrogram,
+                    progress_args=("**📤 Uploading...**", download_msg, time.time()),
+                )
             
             await download_msg.delete()
+            
         except Exception as e:
-            await download_msg.edit(f"**❌ Upload Failed:** {e}")
+            await download_msg.edit(f"**❌ Upload Failed:** {str(e)}")
 
     except Exception as e:
-        print(f"Error: {e}")
+        trace_error = traceback.format_exc()
         if download_msg:
-            await download_msg.edit(f"**❌ Error:** {e}")
+            await download_msg.edit(f"**❌ An error occurred:** {str(e)}")
+        print(trace_error)
+
     finally:
         # Cleanup
-        if file_id in renaming_operations: del renaming_operations[file_id]
-        for p in [download_path, renamed_path, processed_path, thumb_path]:
-            if p and os.path.exists(p): os.remove(p)
+        if file_id in renaming_operations:
+            del renaming_operations[file_id]
+        if download_path and os.path.exists(download_path):
+            os.remove(download_path)
+        if renamed_path and os.path.exists(renamed_path):
+            os.remove(renamed_path)
+        if processed_path and os.path.exists(processed_path):
+            os.remove(processed_path)
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
