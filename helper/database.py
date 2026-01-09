@@ -11,8 +11,8 @@ class Database:
         except Exception as e:
             logging.error(f"Failed to connect to MongoDB: {e}")
             raise e
-        self.AshutoshGoswami24 = self._client[database_name]
-        self.col = self.AshutoshGoswami24.user
+        self.ZoroBhaiya = self._client[database_name]
+        self.col = self.ZoroBhaiya.user
 
     def new_user(self, id):
         return dict(
@@ -124,4 +124,4 @@ class Database:
             logging.error(f"Error getting media preference for user {id}: {e}")
             return None
 
-AshutoshGoswami24 = Database(Config.DB_URL, Config.DB_NAME)
+ZoroBhaiya = Database(Config.DB_URL, Config.DB_NAME)
