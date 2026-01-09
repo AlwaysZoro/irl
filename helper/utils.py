@@ -3,8 +3,6 @@ from datetime import datetime
 from pytz import timezone
 from config import Config, Txt 
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-import re
-
 
 async def progress_for_pyrogram(current, total, ud_type, message, start):
     now = time.time()
@@ -20,8 +18,8 @@ async def progress_for_pyrogram(current, total, ud_type, message, start):
         estimated_total_time = TimeFormatter(milliseconds=estimated_total_time)
 
         progress = "{0}{1}".format(
-            ''.join(["■" for i in range(math.floor(percentage / 5))]),
-            ''.join(["□" for i in range(20 - math.floor(percentage / 5))])
+            ''.join(["⬢" for i in range(math.floor(percentage / 5))]),
+            ''.join(["⬡" for i in range(20 - math.floor(percentage / 5))])
         )            
         tmp = progress + Txt.PROGRESS_BAR.format( 
             round(percentage, 2),
@@ -33,7 +31,7 @@ async def progress_for_pyrogram(current, total, ud_type, message, start):
         try:
             await message.edit(
                 text=f"{ud_type}\n\n{tmp}",               
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("• ᴄᴀɴᴄᴇʟ •", callback_data="close")]])                                               
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✖️ 𝙲𝙰𝙽𝙲𝙴𝙻 ✖️", callback_data="close")]])                                               
             )
         except:
             pass
@@ -48,7 +46,6 @@ def humanbytes(size):
         size /= power
         n += 1
     return str(round(size, 2)) + " " + Dic_powerN[n] + 'ʙ'
-
 
 def TimeFormatter(milliseconds: int) -> str:
     seconds, milliseconds = divmod(int(milliseconds), 1000)
@@ -69,34 +66,3 @@ def convert(seconds):
     minutes = seconds // 60
     seconds %= 60      
     return "%d:%02d:%02d" % (hour, minutes, seconds)
-
-async def send_log(b, u):
-    if Config.LOG_CHANNEL is not None:
-        curr = datetime.now(timezone("Asia/Kolkata"))
-        date = curr.strftime('%d %B, %Y')
-        time = curr.strftime('%I:%M:%S %p')
-        await b.send_message(
-            Config.LOG_CHANNEL,
-            f"**--Nᴇᴡ Uꜱᴇʀ Sᴛᴀʀᴛᴇᴅ Tʜᴇ Bᴏᴛ--**\n\nUꜱᴇʀ: {u.mention}\nIᴅ: `{u.id}`\nUɴ: @{u.username}\n\nDᴀᴛᴇ: {date}\nTɪᴍᴇ: {time}\n\nBy: {b.mention}"
-        )
-
-def add_prefix_suffix(input_string, prefix='', suffix=''):
-    pattern = r'(?P<filename>.*?)(\.\w+)?$'
-    match = re.search(pattern, input_string)
-    if match:
-        filename = match.group('filename')
-        extension = match.group(2) or ''
-        if prefix == None:
-            if suffix == None:
-                return f"{filename}{extension}"
-            return f"{filename} {suffix}{extension}"
-        elif suffix == None:
-            if prefix == None:
-               return f"{filename}{extension}"
-            return f"{prefix}{filename}{extension}"
-        else:
-            return f"{prefix}{filename} {suffix}{extension}"
-
-
-    else:
-        return input_string
