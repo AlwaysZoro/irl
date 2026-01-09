@@ -4,8 +4,8 @@ services:
     name: AutoRenameBot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    repo: https://github.com/Codeflix-Bots/AutoRenameBot.git
+    startCommand: python3 bot.py
+    repo:
     branch: main
     autoDeploy: false
     envVars:
