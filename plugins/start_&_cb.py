@@ -1,17 +1,17 @@
 import random
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
-from helper.database import AshutoshGoswami24
+from helper.database import ZoroBhaiya
 from config import Config, Txt
 
 @Client.on_message(filters.private & filters.command("start"))
 async def start(client, message):
     user = message.from_user
-    await AshutoshGoswami24.add_user(client, message)
+    await ZoroBhaiya.add_user(client, message)
     button = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("📢 Updates", url="https://t.me/AshutoshGoswami24"),
+                InlineKeyboardButton("📢 Updates", url="https://t.me/ZoroBhaiya"),
                 InlineKeyboardButton("💬 Support", url="https://t.me/AshuSupport"),
             ],
             [
@@ -45,7 +45,7 @@ async def cb_handler(client, query: CallbackQuery):
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
-                        InlineKeyboardButton("📢 Updates", url="https://t.me/AshutoshGoswami24"),
+                        InlineKeyboardButton("📢 Updates", url="https://t.me/ZoroBhaiya"),
                         InlineKeyboardButton("💬 Support", url="https://t.me/AshuSupport"),
                     ],
                     [
@@ -77,3 +77,38 @@ async def cb_handler(client, query: CallbackQuery):
         )
     elif data == "close":
         await query.message.delete()
+    elif data == "file_names":
+        format_template = await ZoroBhaiya.get_format_template(user_id)
+        await query.message.edit_text(
+            text=Txt.FILE_NAME_TXT.format(
+                format_template=format_template or "Not Set - Use: /autorename [format]"
+            ),
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            ),
+        )
+    elif data == "thumbnail":
+        await query.message.edit_text(
+            text=Txt.THUMBNAIL_TXT,
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            ),
+        )
+    elif data == "caption":
+        await query.message.edit_text(
+            text=Txt.CAPTION_TXT,
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            ),
+        )
+    elif data == "donate":
+        await query.message.edit_text(
+            text=Txt.DONATE_TXT,
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back", callback_data="help")]]
+            ),
+        )
