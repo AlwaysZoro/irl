@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from helper.database import AshutoshGoswami24
+from helper.database import ZoroBhaiya
 
 @Client.on_message(filters.private & filters.command("set_caption"))
 async def add_caption(client, message):
@@ -8,20 +8,20 @@ async def add_caption(client, message):
             "**Give The Caption\n\nExample :- `/set_caption 📕Name ➠ : {filename} \n\n🔗 Size ➠ : {filesize} \n\n⏰ Duration ➠ : {duration}`**"
         )
     caption = message.text.split(" ", 1)[1]
-    await AshutoshGoswami24.set_caption(message.from_user.id, caption=caption)
+    await ZoroBhaiya.set_caption(message.from_user.id, caption=caption)
     await message.reply_text("**Your Caption Successfully Added ✅**")
 
 @Client.on_message(filters.private & filters.command("del_caption"))
 async def delete_caption(client, message):
-    caption = await AshutoshGoswami24.get_caption(message.from_user.id)
+    caption = await ZoroBhaiya.get_caption(message.from_user.id)
     if not caption:
         return await message.reply_text("**You Don't Have Any Caption ❌**")
-    await AshutoshGoswami24.set_caption(message.from_user.id, caption=None)
+    await ZoroBhaiya.set_caption(message.from_user.id, caption=None)
     await message.reply_text("**Your Caption Successfully Deleted 🗑️**")
 
 @Client.on_message(filters.private & filters.command(["see_caption", "view_caption"]))
 async def see_caption(client, message):
-    caption = await AshutoshGoswami24.get_caption(message.from_user.id)
+    caption = await ZoroBhaiya.get_caption(message.from_user.id)
     if caption:
         await message.reply_text(f"**Your Caption :**\n\n`{caption}`")
     else:
@@ -29,7 +29,7 @@ async def see_caption(client, message):
 
 @Client.on_message(filters.private & filters.command(["view_thumb", "viewthumb"]))
 async def viewthumb(client, message):
-    thumb = await AshutoshGoswami24.get_thumbnail(message.from_user.id)
+    thumb = await ZoroBhaiya.get_thumbnail(message.from_user.id)
     if thumb:
         await client.send_photo(chat_id=message.chat.id, photo=thumb)
     else:
@@ -37,13 +37,13 @@ async def viewthumb(client, message):
 
 @Client.on_message(filters.private & filters.command(["del_thumb", "delthumb"]))
 async def removethumb(client, message):
-    await AshutoshGoswami24.set_thumbnail(message.from_user.id, file_id=None)
+    await ZoroBhaiya.set_thumbnail(message.from_user.id, file_id=None)
     await message.reply_text("**Thumbnail Deleted Successfully 🗑️**")
 
 @Client.on_message(filters.private & filters.photo)
 async def addthumbs(client, message):
     mkn = await message.reply_text("Please Wait ...")
-    await AshutoshGoswami24.set_thumbnail(
+    await ZoroBhaiya.set_thumbnail(
         message.from_user.id, file_id=message.photo.file_id
     )
     await mkn.edit("**Thumbnail Saved Successfully ✅️**")
