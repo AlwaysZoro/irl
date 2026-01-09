@@ -1,7 +1,7 @@
 import logging
 import logging.config
 import warnings
-import pyrogram # <--- ADDED: Required for pyrogram.utils access
+import pyrogram
 from pyrogram import Client, idle, __version__
 from pyrogram.raw.all import layer
 from config import Config
@@ -15,18 +15,22 @@ import pyromod
 # Explicitly set the channel ID fix
 pyrogram.utils.MIN_CHANNEL_ID = -1003512136864
 
-# Robust Logging Setup
-if "logging.conf" in Config.__dict__:
-    logging.config.fileConfig("logging.conf")
-else:
-    # Fallback if config file is missing
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+# Enhanced Logging Setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log")
+    ]
+)
 
-logging.getLogger().setLevel(logging.INFO)
-logging.getLogger("pyrogram").setLevel(logging.ERROR)
+# Reduce pyrogram noise
+logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logging.getLogger("pyrogram.session.session").setLevel(logging.WARNING)
+logging.getLogger("pyrogram.connection.connection").setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
 
 class Bot(Client):
     def __init__(self):
@@ -35,9 +39,10 @@ class Bot(Client):
             api_id=Config.API_ID,
             api_hash=Config.API_HASH,
             bot_token=Config.BOT_TOKEN,
-            workers=200,
+            workers=50,  # Reduced from 200 for stability
             plugins={"root": "plugins"},
             sleep_threshold=15,
+            max_concurrent_transmissions=2,  # Limit concurrent uploads
         )
 
     async def start(self):
@@ -45,11 +50,17 @@ class Bot(Client):
         me = await self.get_me()
         self.mention = me.mention
         self.username = me.username
+        
+        # Start web server
         app = web.AppRunner(await web_server())
         await app.setup()
         bind_address = "0.0.0.0"
         await web.TCPSite(app, bind_address, Config.PORT).start()
-        logging.info(f"{me.first_name} ✅✅ BOT started successfully ✅✅")
+        
+        logger.info(f"✅ {me.first_name} BOT started successfully")
+        logger.info(f"Bot Username: @{me.username}")
+        logger.info(f"Pyrogram version: {__version__}")
+        logger.info(f"Web server running on port {Config.PORT}")
 
         if Config.LOG_CHANNEL:
             try:
@@ -58,25 +69,33 @@ class Bot(Client):
                 time = curr.strftime("%I:%M:%S %p")
                 await self.send_message(
                     Config.LOG_CHANNEL,
-                    f"**__{me.mention} Iꜱ Rᴇsᴛᴀʀᴛᴇᴅ !!**\n\n📅 Dᴀᴛᴇ : `{date}`\n⏰ Tɪᴍᴇ : `{time}`",
+                    f"**__{me.mention} Is Restarted !!**\n\n📅 Date : `{date}`\n⏰ Time : `{time}`\n🔧 Version: {__version__}",
                 )
             except Exception as e:
-                print(f"Log Channel Error: {e}")
+                logger.error(f"Log Channel Error: {e}")
 
     async def stop(self, *args):
         await super().stop()
-        logging.info("Bot Stopped 🙄")
+        logger.info("Bot Stopped")
 
 bot_instance = Bot()
 
-def main():
-    async def start_services():
-        await asyncio.gather(bot_instance.start())
-
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(start_services())
-    loop.run_forever()
+async def main():
+    """Main async entry point"""
+    try:
+        await bot_instance.start()
+        logger.info("Bot is running...")
+        await idle()
+    except KeyboardInterrupt:
+        logger.info("Received stop signal")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+    finally:
+        await bot_instance.stop()
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", message="There is no current event loop")
-    main()
+    
+    # Run the bot
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
