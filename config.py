@@ -13,7 +13,7 @@ class Config(object):
  
     # other configs
     BOT_UPTIME  = time.time()
-    START_PIC   = os.environ.get("START_PIC", "https://raw.githubusercontent.com/AlwaysZoro/filenaam/refs/heads/main/helper/start_pic.jpg")
+    START_PIC   = os.environ.get("START_PIC", "https://graph.org/file/29a3acbbab9de5f45a5fe.jpg")
     ADMIN       = [int(admin) if id_pattern.search(admin) else admin for admin in os.environ.get('ADMIN', '8321397181').split()]
     
     # FORCE_SUB_CHANNELS REMOVED
