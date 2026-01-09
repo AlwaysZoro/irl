@@ -43,19 +43,28 @@ pattern9 = re.compile(r"[([<{]?\s*4kX264\s*[)\]>}]?", re.IGNORECASE)
 pattern10 = re.compile(r"[([<{]?\s*4kx265\s*[)\]>}]?", re.IGNORECASE)
 
 def extract_quality(filename):
-    """Extract quality from filename"""
+    """Extract quality from filename and return in standardized format"""
     match5 = re.search(pattern5, filename)
-    if match5: return match5.group(1) or match5.group(2)
+    if match5: 
+        quality = match5.group(1) or match5.group(2)
+        # Keep resolutions like 1080p, 720p, 480p in lowercase 'p'
+        return quality.lower()  # Returns: 1080p, 720p, 480p, etc.
+    
     match6 = re.search(pattern6, filename)
-    if match6: return "4k"
+    if match6: return "4K"  # 4K in uppercase
+    
     match7 = re.search(pattern7, filename)
-    if match7: return "2k"
+    if match7: return "2K"  # 2K in uppercase
+    
     match8 = re.search(pattern8, filename)
-    if match8: return "HdRip"
+    if match8: return "HDRIP"  # HDRIP in uppercase
+    
     match9 = re.search(pattern9, filename)
-    if match9: return "4kX264"
+    if match9: return "4Kx264"  # 4Kx264
+    
     match10 = re.search(pattern10, filename)
-    if match10: return "4kx265"
+    if match10: return "4Kx265"  # 4Kx265
+    
     return "Unknown"
 
 def extract_episode_number(filename):
@@ -225,7 +234,7 @@ async def start_processing(client, message):
         # Extract metadata from filename
         episode_number = extract_episode_number(file_name)
         season_number = extract_season_number(file_name)
-        quality = extract_quality(file_name)
+        quality = extract_quality(file_name)  # Returns: 1080p, 720p, 480p, 4K, 2K, HDRIP, 4Kx264, 4Kx265
 
         # Replace placeholders in template
         renamed_template = format_template
