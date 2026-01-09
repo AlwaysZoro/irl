@@ -11,6 +11,8 @@ import asyncio
 from route import web_server  # <--- FIXED IMPORT
 import pyromod
 
+pyrogram.utils.MIN_CHANNEL_ID = -1003512136864
+
 logging.config.fileConfig("logging.conf")
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
