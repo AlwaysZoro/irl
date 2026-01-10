@@ -1,9 +1,7 @@
 import logging
-import logging.config
 import warnings
 import pyrogram
 from pyrogram import Client, idle, __version__
-from pyrogram.raw.all import layer
 from config import Config
 from aiohttp import web
 from pytz import timezone
@@ -11,22 +9,22 @@ from datetime import datetime
 import asyncio
 from route import web_server
 import pyromod
+import signal
+import sys
 
-# Explicitly set the channel ID fix
+# Channel ID fix
 pyrogram.utils.MIN_CHANNEL_ID = -1003512136864
 
-# Minimal Logging Setup - Only Important Messages
+# Clean logging - only critical messages
 logging.basicConfig(
     level=logging.ERROR,
-    format="%(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()]
 )
 
-# Silence all library noise
-logging.getLogger("pyrogram").setLevel(logging.ERROR)
-logging.getLogger("pyrogram.session").setLevel(logging.ERROR)
-logging.getLogger("pyrogram.connection").setLevel(logging.ERROR)
-logging.getLogger("aiohttp").setLevel(logging.ERROR)
+# Silence library noise
+for logger_name in ["pyrogram", "pyrogram.session", "pyrogram.connection", "aiohttp", "motor"]:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -42,20 +40,24 @@ class Bot(Client):
             plugins={"root": "plugins"},
             sleep_threshold=15,
         )
+        self.is_running = False
 
     async def start(self):
         await super().start()
+        self.is_running = True
         me = await self.get_me()
         self.mention = me.mention
         self.username = me.username
         
         # Start web server
-        app = web.AppRunner(await web_server())
-        await app.setup()
-        bind_address = "0.0.0.0"
-        await web.TCPSite(app, bind_address, Config.PORT).start()
+        try:
+            app = web.AppRunner(await web_server())
+            await app.setup()
+            await web.TCPSite(app, "0.0.0.0", Config.PORT).start()
+        except Exception as e:
+            logger.error(f"Web server error: {e}")
         
-        logger.info(f"✅ Bot Started: @{me.username}")
+        logger.info(f"✅ Bot Started Successfully: @{me.username}")
 
         if Config.LOG_CHANNEL:
             try:
@@ -74,16 +76,33 @@ class Bot(Client):
                 pass
 
     async def stop(self, *args):
-        await super().stop()
-        logger.info("Bot Stopped")
+        if self.is_running:
+            self.is_running = False
+            try:
+                await super().stop()
+                logger.info("Bot stopped cleanly")
+            except Exception:
+                pass
 
 bot_instance = Bot()
+shutdown_event = asyncio.Event()
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    shutdown_event.set()
 
 async def main():
     """Main async entry point"""
+    # Setup signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
         await bot_instance.start()
-        await idle()
+        
+        # Wait for shutdown signal
+        await shutdown_event.wait()
+        
     except KeyboardInterrupt:
         pass
     except Exception as e:
@@ -92,8 +111,16 @@ async def main():
         await bot_instance.stop()
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore", message="There is no current event loop")
+    warnings.filterwarnings("ignore")
     
-    # Run the bot
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            loop.close()
+        except:
+            pass
