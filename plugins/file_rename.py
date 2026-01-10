@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # CHANGED: 3 parallel processes
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -25,41 +25,49 @@ QUEUE_TASK_RUNNING = False
 renaming_operations = {}
 
 # ============================================
-# FIXED REGEX PATTERNS - ORDER MATTERS
+# ENHANCED REGEX PATTERNS - PRIORITIZED ORDER
 # ============================================
-# Pattern to extract episode number - IMPROVED
+# 1. Episode patterns (most specific to general)
 EPISODE_PATTERNS = [
-    re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Space before/after: " 1155 " or " 1155["
-    re.compile(r'^(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Start of string: "1155 " or "1155["
-    re.compile(r'[\]\)][\s\-_]?(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # After bracket: "] 1155 "
-    re.compile(r'[Ee][Pp]?[\s\-_]?(\d+)', re.IGNORECASE),  # EP123, E123, ep 123
-    re.compile(r'[Ee]pisode[\s\-_]?(\d+)', re.IGNORECASE),  # Episode 123
-    re.compile(r'S\d+[Ee](\d+)', re.IGNORECASE),  # S01E12
-    re.compile(r'[\-_\s](\d{1,4})[\.\-_\s]*(?:v\d+)?$', re.IGNORECASE),  # End: "- 05" or " 05.mkv"
+    re.compile(r'[Ss](\d+)[Ee](\d+)', re.IGNORECASE),          # S01E12 format
+    re.compile(r'[Ee][Pp][\s\-_]?(\d{3,4})', re.IGNORECASE),   # EP123, EP 123
+    re.compile(r'[Ee][\s\-_]?(\d{3,4})', re.IGNORECASE),       # E123
+    re.compile(r'[Ee]pisode[\s\-_]?(\d{3,4})', re.IGNORECASE), # Episode 123
+    re.compile(r'\[\s*(\d{3,4})\s*\]', re.IGNORECASE),         # [123]
+    re.compile(r'\(\s*(\d{3,4})\s*\)', re.IGNORECASE),         # (123)
+    re.compile(r'[\s\-_](\d{3,4})[\s\-_\.]', re.IGNORECASE),   # -123- or _123_
+    re.compile(r'^(\d{3,4})[\s\-_]', re.IGNORECASE),           # 123 -
+    re.compile(r'[\s\-_](\d{3,4})$', re.IGNORECASE),           # - 123
 ]
 
-# Pattern to extract season number
+# 2. Season patterns
 SEASON_PATTERNS = [
-    re.compile(r'[Ss]eason[\s\-_]?(\d+)', re.IGNORECASE),  # Season 1
-    re.compile(r'[Ss](\d+)[Ee]\d+', re.IGNORECASE),  # S01E12
-    re.compile(r'[\s\-_][Ss](\d+)[\s\-_\[]', re.IGNORECASE),  # " S1 " or " S1["
+    re.compile(r'[Ss](\d+)[Ee]\d+', re.IGNORECASE),           # S01E12
+    re.compile(r'[Ss]eason[\s\-_]?(\d+)', re.IGNORECASE),     # Season 1
+    re.compile(r'[\s\-_][Ss](\d+)[\s\-_\.]', re.IGNORECASE),  # _S01_ or -S01-
+    re.compile(r'^[Ss](\d+)', re.IGNORECASE),                 # S01Something
 ]
 
-# Pattern to extract quality - FIXED
+# 3. Quality patterns
 QUALITY_PATTERNS = [
-    re.compile(r'\[(\d{3,4}[pP])\]', re.IGNORECASE),  # [480p], [1080p]
-    re.compile(r'\((\d{3,4}[pP])\)', re.IGNORECASE),  # (480p), (1080p)
-    re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\[]', re.IGNORECASE),  # 480p , 1080p[
-    re.compile(r'\b(\d{3,4}[pP])\b', re.IGNORECASE),  # 480p, 1080p (word boundary)
-    re.compile(r'\b(4[Kk])\b', re.IGNORECASE),  # 4K
-    re.compile(r'\b(2[Kk])\b', re.IGNORECASE),  # 2K
-    re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b', re.IGNORECASE),  # HDRIP
-    re.compile(r'\b(4[Kk][Xx]26[45])\b', re.IGNORECASE),  # 4Kx264, 4Kx265
+    re.compile(r'\[(\d{3,4}[pP])\]', re.IGNORECASE),         # [1080p]
+    re.compile(r'\((\d{3,4}[pP])\)', re.IGNORECASE),         # (1080p)
+    re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\.]', re.IGNORECASE), # -1080p-
+    re.compile(r'\b(4[Kk])\b', re.IGNORECASE),               # 4K
+    re.compile(r'\b(2160[Pp])\b', re.IGNORECASE),            # 2160p
+    re.compile(r'\b(1440[Pp])\b', re.IGNORECASE),            # 1440p
+    re.compile(r'\b(1080[Pp])\b', re.IGNORECASE),            # 1080p
+    re.compile(r'\b(720[Pp])\b', re.IGNORECASE),             # 720p
+    re.compile(r'\b(480[Pp])\b', re.IGNORECASE),             # 480p
+    re.compile(r'\b(360[Pp])\b', re.IGNORECASE),             # 360p
+    re.compile(r'\b([Hh][Dd])\b', re.IGNORECASE),            # HD
+    re.compile(r'\b([Ff][Hh][Dd])\b', re.IGNORECASE),        # FHD
+    re.compile(r'\b([Uu][Hh][Dd])\b', re.IGNORECASE),        # UHD
 ]
 
 def extract_metadata_fast(filename):
     """
-    OPTIMIZED: Extract all metadata in ONE pass
+    OPTIMIZED: Extract all metadata in ONE pass with priority
     Returns: (episode, season, quality)
     """
     # Remove file extension for cleaner parsing
@@ -73,13 +81,18 @@ def extract_metadata_fast(filename):
     for pattern in EPISODE_PATTERNS:
         match = pattern.search(name_only)
         if match:
-            episode = match.group(1)
+            # For S01E12 format, group 2 is episode
+            if pattern.pattern.startswith('[Ss](\\d+)[Ee](\\d+)'):
+                episode = match.group(2)
+            else:
+                episode = match.group(1)
             break
     
     # Extract season number
     for pattern in SEASON_PATTERNS:
         match = pattern.search(name_only)
         if match:
+            # For S01E12 format, group 1 is season
             season = match.group(1)
             break
     
@@ -89,17 +102,20 @@ def extract_metadata_fast(filename):
         if match:
             quality = match.group(1)
             # Normalize quality format
-            if quality.lower() in ['4k', '2k']:
+            if quality.upper() in ['4K', '2160P']:
+                quality = '4K'
+            elif 'p' in quality.lower() or 'P' in quality:
+                # Ensure lowercase p
+                quality = quality.upper().replace('P', 'p')
+            else:
                 quality = quality.upper()
-            elif 'p' in quality.lower():
-                quality = quality.lower()  # 480p, 1080p
-            elif 'hdrip' in quality.lower():
-                quality = 'HDRIP'
             break
     
     # Set defaults for missing values
     if not quality:
         quality = 'Unknown'
+    if not season:
+        season = '01'  # Default season
     
     logger.info(f"Extracted from '{filename}': episode={episode}, season={season}, quality={quality}")
     
@@ -111,29 +127,29 @@ def apply_rename_template(template, episode, season, quality):
     """
     result = template
     
-    # Replace {episode} - keep as-is if found, otherwise remove placeholder
-    if '{episode}' in result:
-        if episode:
-            result = result.replace('{episode}', episode)
-        else:
-            # Remove placeholder if no episode found
-            result = result.replace('{episode}', 'XX')
+    # Replace {episode}
+    if episode and '{episode}' in result:
+        result = result.replace('{episode}', episode.zfill(3))  # Pad to 3 digits
+    elif '{episode}' in result:
+        result = result.replace('{episode}', 'XXX')
     
-    # Replace {season} - keep as-is if found, otherwise use default
-    if '{season}' in result:
-        if season:
-            result = result.replace('{season}', season.zfill(2))
-        else:
-            result = result.replace('{season}', '01')
+    # Replace {season}
+    if season and '{season}' in result:
+        result = result.replace('{season}', season.zfill(2))
+    elif '{season}' in result:
+        result = result.replace('{season}', '01')
     
     # Replace {quality}
     if '{quality}' in result:
         result = result.replace('{quality}', quality)
     
+    # Clean up any extra spaces
+    result = re.sub(r'\s+', ' ', result).strip()
+    
     return result
 
 async def queue_processor(client):
-    """Background task that processes queue"""
+    """Background task that processes queue - handles 3 parallel"""
     global QUEUE_TASK_RUNNING
     QUEUE_TASK_RUNNING = True
     
@@ -146,6 +162,7 @@ async def queue_processor(client):
         except Exception as e:
             logger.error(f"Queue processor error: {e}")
             traceback.print_exc()
+        await asyncio.sleep(0.1)
 
 @Client.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def auto_rename_files(client, message):
@@ -169,8 +186,8 @@ async def auto_rename_files(client, message):
             "**Example:**\n"
             "`/autorename [@Anime_Atlas] {episode} - One Piece [{quality}] [Sub]`\n\n"
             "**Available Placeholders:**\n"
-            "• `{episode}` - Episode number\n"
-            "• `{season}` - Season number\n"
+            "• `{episode}` - Episode number (padded to 3 digits)\n"
+            "• `{season}` - Season number (padded to 2 digits)\n"
             "• `{quality}` - Video quality\n\n"
         )
 
@@ -180,12 +197,19 @@ async def auto_rename_files(client, message):
     await QUEUE.put(message)
     position = QUEUE.qsize()
     
-    if position > 2:
+    if position > 3:
         await message.reply_text(
             f"**⏳ Added to Queue**\n"
-            f"**Position:** {position - 2}\n"
+            f"**Position:** {position - 3}\n"
             f"**Status:** Waiting for processing slot...\n"
-            f"**Currently Processing:** 2 files"
+            f"**Currently Processing:** 3 files\n"
+            f"**Queue Size:** {position} files"
+        )
+    elif position > 1:
+        await message.reply_text(
+            f"**⏳ Added to Queue**\n"
+            f"**Position:** {position}\n"
+            f"**Status:** Will start processing soon..."
         )
 
 async def get_video_duration(file_path):
@@ -206,7 +230,7 @@ async def get_video_duration(file_path):
         return 0
 
 async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Processing"):
-    """Monitor FFmpeg progress in real-time"""
+    """Monitor FFmpeg progress in real-time - show minutes:seconds"""
     last_update = 0
     
     while True:
@@ -218,7 +242,7 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
         
         if "time=" in line_str and duration > 0:
             current_time = time.time()
-            if current_time - last_update > 3:
+            if current_time - last_update > 2:  # Update every 2 seconds
                 try:
                     time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
                     if time_match:
@@ -226,15 +250,22 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
                         seconds_done = h*3600 + m*60 + s
                         percentage = min(int((seconds_done / duration) * 100), 100)
                         
+                        # Convert to minutes:seconds
+                        mins_done = seconds_done // 60
+                        secs_done = seconds_done % 60
+                        total_mins = int(duration) // 60
+                        total_secs = int(duration) % 60
+                        
                         bar_len = 20
                         filled = int((percentage / 100) * bar_len)
-                        bar = "■ " * filled + "□" * (bar_len - filled)
+                        bar = "■" * filled + "□" * (bar_len - filled)
                         
                         await download_msg.edit(
                             f"**⚙️ {operation}...**\n\n"
                             f"{bar}\n"
                             f"**Progress:** {percentage}%\n"
-                            f"**Time Processed:** {seconds_done}/{int(duration)}s"
+                            f"**Time:** {mins_done:02d}:{secs_done:02d} / {total_mins:02d}:{total_secs:02d}\n"
+                            f"**Speed:** {percentage/100:.1f}x"
                         )
                         last_update = current_time
                 except Exception as e:
@@ -293,12 +324,12 @@ async def start_processing(client, message):
         renaming_operations[file_id] = datetime.now()
 
         # ============================================
-        # FIXED: Extract metadata ONCE - FAST
+        # ENHANCED: Extract metadata with improved regex
         # ============================================
         episode, season, quality = extract_metadata_fast(file_name)
         
         # ============================================
-        # FIXED: Apply template correctly - NO CORRUPTION
+        # ENHANCED: Apply template with proper padding
         # ============================================
         renamed_template = apply_rename_template(format_template, episode, season, quality)
         
@@ -311,10 +342,10 @@ async def start_processing(client, message):
         # Create directories
         os.makedirs("downloads", exist_ok=True)
         
-        # FIXED: No timestamp prefix in final filename
+        # Timestamp for temp files
         timestamp = int(time.time())
-        download_path = f"downloads/{timestamp}_{file_name}"  # Temp download path
-        output_path = f"downloads/output_{timestamp}{file_extension}"  # Final output path
+        download_path = f"downloads/{timestamp}_{file_name}"
+        output_path = f"downloads/output_{timestamp}{file_extension}"
         
         download_msg = await message.reply_text("🚀 **Starting Download...**")
 
@@ -330,7 +361,7 @@ async def start_processing(client, message):
             logger.error(f"Download failed: File not found at {download_path}")
             return await download_msg.edit("❌ **Download Failed:** File not found.")
 
-        logger.info(f"Downloaded: {download_path} ({file_size} bytes)")
+        logger.info(f"Downloaded: {download_path} ({humanbytes(file_size)})")
 
         # Check if video processing needed
         is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v']
@@ -339,21 +370,23 @@ async def start_processing(client, message):
             duration = await get_video_duration(download_path)
             logger.info(f"Detected video duration: {duration}s")
         
-        await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
+        await download_msg.edit("**⚙️ Processing: Adding Watermark & Metadata...**")
 
         # ============================================
-        # FIXED: ONE PASS FFMPEG - METADATA + WATERMARK
-        # NO DOUBLE ENCODING - OPTIMIZED SIZE
+        # FIXED WATERMARK: ZURAMBI.ttf, white, bold, size 10, top-left (1,1)
+        # SINGLE PASS FFMPEG with quality preservation
         # ============================================
         
         # Find ZURAMBI font
         font_path = None
         font_paths_to_try = [
+            "helper/ZURAMBI.ttf",  # Primary location
             "/usr/share/fonts/truetype/custom/zurambi.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/Windows/Fonts/arialbd.ttf"
         ]
+        
         for fp in font_paths_to_try:
             if os.path.exists(fp):
                 font_path = fp
@@ -361,52 +394,43 @@ async def start_processing(client, message):
                 break
         
         if not font_path:
-            font_path = "/helper/ZURAMBI.ttf"
-            logger.warning(f"ZURAMBI font not found, using fallback: {font_path}")
+            logger.warning("Font not found, using default")
+            font_path = "Arial"
         
-        # ============================================
-        # FIXED WATERMARK: ZURAMBI, WHITE, BOLD, SMALL, TOP-LEFT
-        # Position: x=10, y=10 (stuck to top-left corner)
-        # Size: 20 (small)
-        # ============================================
+        # Watermark configuration
         watermark_text = "ANIME ATLAS"
         drawtext_filter = (
             f"drawtext=text='{watermark_text}':"
-            f"fontfile={font_path}:"
-            f"fontsize=20:"
-            f"fontcolor=white:"
-            f"x=10:"
-            f"y=10:"
-            f"borderw=2:"
-            f"bordercolor=black"
+            f"fontfile='{font_path}':"
+            f"fontsize=10:"  # Size 10
+            f"fontcolor=white:"  # White color
+            f"x=1:"  # Top-left x position
+            f"y=1:"  # Top-left y position
+            f"fontweight=bold:"  # Bold text
+            f"alpha=1.0"  # No transparency
         )
 
-        # Build FFmpeg command - ONE PASS ONLY
+        # Build FFmpeg command - SINGLE PASS with quality preservation
         cmd = ['ffmpeg', '-i', download_path]
         
         if is_video:
-            # ============================================
-            # FIXED: OPTIMIZED ENCODING - PREVENT FILE BLOAT
-            # CRF 27: Good quality, smaller file size
-            # Preset veryfast: Fast encoding
-            # Audio: Copy (no re-encode)
-            # ============================================
+            # Optimized encoding for minimal size increase (2-5%)
             cmd.extend([
                 '-vf', drawtext_filter,
                 '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-crf', '27',
-                '-c:a', 'copy',
-                '-c:s', 'copy',
-                '-map', '0',
+                '-preset', 'veryfast',  # Fast encoding
+                '-crf', '27',  # Good quality, minimal size increase
+                '-c:a', 'copy',  # Copy audio (no re-encode)
+                '-c:s', 'copy',  # Copy subtitles
+                '-map', '0',  # Copy all streams
                 '-movflags', '+faststart',
                 '-max_muxing_queue_size', '9999',
                 # Metadata
                 '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
                 '-metadata', 'artist=Anime Atlas',
                 '-metadata', 'author=Anime Atlas',
-                '-metadata:s:v', 'title=Join Anime Atlas',
-                '-metadata:s:a', 'title=Anime Atlas',
+                '-metadata:s:v', 'title=Anime Atlas',
+                '-metadata:s:a', 'title=Join Anime Atlas',
             ])
         else:
             # Non-video: just copy and add metadata
@@ -420,9 +444,9 @@ async def start_processing(client, message):
         
         cmd.extend(['-y', '-progress', 'pipe:2', output_path])
 
-        logger.info(f"FFmpeg command: {' '.join(cmd)}")
+        logger.info(f"FFmpeg command: {' '.join(cmd[:5])}...")
 
-        # Run FFmpeg
+        # Run FFmpeg asynchronously
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -438,23 +462,31 @@ async def start_processing(client, message):
         
         if process.returncode != 0:
             stderr = await process.stderr.read()
-            error_msg = stderr.decode()
+            error_msg = stderr.decode()[:200]
             logger.error(f"FFmpeg error (code {process.returncode}): {error_msg}")
             
-            if not os.path.exists(output_path):
-                if os.path.exists(download_path):
-                    logger.warning("FFmpeg failed, using original file")
-                    output_path = download_path
-                else:
-                    return await download_msg.edit(
-                        f"**❌ Processing Failed**\n"
-                        f"FFmpeg error code: {process.returncode}"
-                    )
+            # Fallback to original file
+            if os.path.exists(download_path):
+                logger.warning("FFmpeg failed, using original file")
+                output_path = download_path
+            else:
+                return await download_msg.edit(
+                    f"**❌ Processing Failed**\n"
+                    f"FFmpeg error code: {process.returncode}\n"
+                    f"Error: {error_msg}"
+                )
 
-        logger.info(f"FFmpeg completed: {output_path}")
-        
-        final_file_size = os.path.getsize(output_path)
-        logger.info(f"Original size: {humanbytes(file_size)}, Final size: {humanbytes(final_file_size)}")
+        # Check file sizes
+        if os.path.exists(output_path):
+            final_file_size = os.path.getsize(output_path)
+            size_increase = ((final_file_size - file_size) / file_size * 100) if file_size > 0 else 0
+            logger.info(f"Original: {humanbytes(file_size)}, Final: {humanbytes(final_file_size)}, Increase: {size_increase:.1f}%")
+            
+            if size_increase > 10:  # Warn if size increase > 10%
+                logger.warning(f"Large size increase: {size_increase:.1f}%")
+        else:
+            logger.error("Output file not created")
+            return await download_msg.edit("❌ **Processing Failed:** Output file not created")
 
         # Check file size limit
         if final_file_size > 2000 * 1024 * 1024:
@@ -507,7 +539,7 @@ async def start_processing(client, message):
                     document=output_path,
                     thumb=thumb_path,
                     caption=caption,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     force_document=True,
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
@@ -518,7 +550,7 @@ async def start_processing(client, message):
                     video=output_path,
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     duration=int(duration),
                     supports_streaming=True,
                     progress=progress_for_pyrogram,
@@ -530,7 +562,7 @@ async def start_processing(client, message):
                     audio=output_path,
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     duration=int(duration),
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
@@ -563,11 +595,11 @@ async def start_processing(client, message):
         if file_id in renaming_operations:
             del renaming_operations[file_id]
         
-        # Cleanup
+        # Cleanup temp files
         for path in [download_path, output_path, thumb_path]:
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                    logger.info(f"Cleaned up: {path}")
+                    logger.debug(f"Cleaned up: {path}")
                 except Exception as e:
                     logger.error(f"Cleanup error for {path}: {e}")
