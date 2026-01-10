@@ -3,7 +3,7 @@ from pyrogram.enums import MessageMediaType
 from pyrogram.types import InputMediaDocument, Message
 from PIL import Image
 from datetime import datetime
-from helper.utils import progress_for_pyrogram, humanbytes, convert
+from helper.utils import progress_for_pyrogram, humanbytes, convert, format_time
 from helper.database import ZoroBhaiya
 from config import Config
 import os
@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # Fixed: 3 concurrent
+PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # 3 concurrent files
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -25,7 +25,7 @@ QUEUE_TASK_RUNNING = False
 renaming_operations = {}
 
 # ============================================
-# FIXED REGEX PATTERNS - ORDER MATTERS
+# REGEX PATTERNS FOR METADATA EXTRACTION
 # ============================================
 EPISODE_PATTERNS = [
     re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),
@@ -55,7 +55,7 @@ QUALITY_PATTERNS = [
 ]
 
 def extract_metadata_fast(filename):
-    """Extract metadata from filename"""
+    """Extract episode, season, quality from filename"""
     name_only = os.path.splitext(filename)[0]
     
     episode = None
@@ -99,7 +99,7 @@ def extract_metadata_fast(filename):
     return episode, season, quality
 
 def apply_rename_template(template, episode, season, quality):
-    """Apply template with placeholders"""
+    """Apply rename template with placeholders"""
     result = template
     
     if '{episode}' in result:
@@ -114,7 +114,7 @@ def apply_rename_template(template, episode, season, quality):
     return result
 
 def is_video_file(file_path):
-    """Check if file is a video by extension"""
+    """Check if file is video by extension"""
     video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg']
     ext = os.path.splitext(file_path)[1].lower()
     return ext in video_extensions
@@ -152,13 +152,14 @@ async def auto_rename_files(client, message):
         logger.warning(f"User {user_id} has no format template set")
         return await message.reply_text(
             "**❌ Please Set An Auto Rename Format First!**\n\n"
-            "**Use:** `/autorename [format]`\n\n"
-            "**Example:**\n"
+            "**📝 Use:** `/autorename [format]`\n\n"
+            "**📌 Example:**\n"
             "`/autorename [@Anime_Atlas] {episode} - One Piece [{quality}] [Sub]`\n\n"
-            "**Available Placeholders:**\n"
+            "**🔤 Available Placeholders:**\n"
             "• `{episode}` - Episode number\n"
             "• `{season}` - Season number\n"
             "• `{quality}` - Video quality\n\n"
+            "**💡 Tip:** Use /tutorial for detailed guide!"
         )
 
     if not QUEUE_TASK_RUNNING:
@@ -169,10 +170,11 @@ async def auto_rename_files(client, message):
     
     if position > 3:
         await message.reply_text(
-            f"**⏳ Added to Queue**\n"
-            f"**Position:** {position - 3}\n"
-            f"**Status:** Waiting for processing slot...\n"
-            f"**Currently Processing:** 3 files"
+            f"**⏳ Added to Queue**\n\n"
+            f"**📍 Position:** {position - 3}\n"
+            f"**⚙️ Status:** Waiting for processing slot...\n"
+            f"**🔄 Currently Processing:** 3 files\n\n"
+            f"Please wait, your file will be processed soon!"
         )
 
 async def get_video_duration(file_path):
@@ -192,8 +194,8 @@ async def get_video_duration(file_path):
         logger.error(f"Error getting video duration: {e}")
         return 0
 
-async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Processing"):
-    """Monitor FFmpeg progress in real-time"""
+async def monitor_ffmpeg_progress(process, status_msg, duration, operation="Processing"):
+    """Monitor FFmpeg progress with MM:SS format"""
     last_update = 0
     
     while True:
@@ -213,27 +215,31 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
                         seconds_done = h*3600 + m*60 + s
                         percentage = min(int((seconds_done / duration) * 100), 100)
                         
-                        bar_len = 20
-                        filled = int((percentage / 100) * bar_len)
-                        bar = "▰ " * filled + "▱" * (bar_len - filled)
+                        # Progress bar
+                        filled = int((percentage / 100) * 20)
+                        bar = '▰' * filled + '▱' * (20 - filled)
                         
-                        await download_msg.edit(
-                            f"**⚙️ {operation}...**\n\n"
-                            f"{bar}\n"
-                            f"**Progress:** {percentage}%\n"
-                            f"**Time Processed:** {seconds_done}/{int(duration)}s"
+                        # Format times
+                        time_done = format_time(seconds_done)
+                        time_total = format_time(duration)
+                        
+                        await status_msg.edit_text(
+                            f"**⚙️ {operation}**\n\n"
+                            f"{bar}\n\n"
+                            f"**📊 Progress:** {percentage}%\n"
+                            f"**⏱️ Time:** {time_done} / {time_total}"
                         )
                         last_update = current_time
                 except Exception as e:
                     logger.debug(f"Progress update error: {e}")
 
 async def start_processing(client, message):
-    """Main processing function for files"""
+    """Main processing function"""
     user_id = message.from_user.id
     download_path = None
     output_path = None
     thumb_path = None
-    download_msg = None
+    status_msg = None
     
     try:
         # Get user settings
@@ -247,7 +253,8 @@ async def start_processing(client, message):
         if not format_template or not format_template.strip():
             logger.error(f"Format lost during processing for user {user_id}")
             return await message.reply_text(
-                "**❌ Error:** Format template lost during processing. Please set it again with `/autorename`"
+                "**❌ Error:** Format template lost during processing.\n"
+                "Please set it again with `/autorename`"
             )
         
         media_preference = await ZoroBhaiya.get_media_preference(user_id)
@@ -279,12 +286,9 @@ async def start_processing(client, message):
 
         renaming_operations[file_id] = datetime.now()
 
-        # Extract metadata
+        # Extract metadata and apply template
         episode, season, quality = extract_metadata_fast(file_name)
-        
-        # Apply template
         renamed_template = apply_rename_template(format_template, episode, season, quality)
-        
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
         
@@ -299,77 +303,66 @@ async def start_processing(client, message):
         download_path = f"downloads/{timestamp}_{file_name}"
         output_path = f"downloads/output_{timestamp}{file_extension}"
         
-        download_msg = await message.reply_text("🚀 **Starting Download...**")
+        # STEP 1: DOWNLOAD
+        status_msg = await message.reply_text("**📥 Downloading your file...**\n\nPlease wait...")
 
-        # Download file
+        download_start = time.time()
         await client.download_media(
             message,
             file_name=download_path,
             progress=progress_for_pyrogram,
-            progress_args=("**📥 Downloading...**", download_msg, time.time()),
+            progress_args=("**📥 Downloading...**", status_msg, download_start),
         )
         
         if not os.path.exists(download_path):
             logger.error(f"Download failed: File not found at {download_path}")
-            return await download_msg.edit("❌ **Download Failed:** File not found.")
+            return await status_msg.edit_text("**❌ Download Failed**\n\nFile not found after download.")
 
-        logger.info(f"Downloaded: {download_path} ({file_size} bytes)")
+        logger.info(f"✅ Downloaded: {download_path} ({humanbytes(file_size)})")
 
-        # ============================================
-        # CRITICAL FIX: DETECT VIDEO BY FILE EXTENSION
-        # ============================================
+        # STEP 2: PROCESSING (Watermark & Metadata)
         is_video = is_video_file(download_path)
         
         if is_video:
-            logger.info(f"Video detected: {download_path}")
+            logger.info(f"🎬 Video detected: {download_path}")
             
             # Get duration if not available
             if duration == 0:
                 duration = await get_video_duration(download_path)
                 logger.info(f"Detected video duration: {duration}s")
             
-            await download_msg.edit("**⚙️ Processing: Adding Watermark & Metadata...**")
+            # Show processing message
+            await status_msg.edit_text("**⚙️ Processing metadata and watermark...**\n\nThis may take a moment...")
 
             # Find font
-            font_path = None
-            font_paths_to_try = [
-                "helper/ZURAMBI.ttf",  # ✅ FIXED: Correct path
-                "/usr/share/fonts/truetype/custom/zurambi.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            ]
-            for fp in font_paths_to_try:
-                if os.path.exists(fp):
-                    font_path = fp
-                    logger.info(f"Using font: {font_path}")
-                    break
+            font_path = "helper/ZURAMBI.ttf"
+            if not os.path.exists(font_path):
+                font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
             
-            if not font_path:
-                logger.warning("No font found, using default")
-                font_path = "Arial"  # Fallback
+            if not os.path.exists(font_path):
+                logger.warning("Font not found, using Arial")
+                font_path = "Arial"
+            else:
+                logger.info(f"Using font: {font_path}")
             
-            # ============================================
-            # WATERMARK: Small, top-left, white, bold
-            # ============================================
+            # Watermark: Small, top-left, white, bold
             watermark_text = "ANIME ATLAS"
             drawtext_filter = (
                 f"drawtext=text='{watermark_text}':"
                 f"fontfile={font_path}:"
-                f"fontsize=10:"
+                f"fontsize=15:"
                 f"fontcolor=white:"
-                f"x=1:"
-                f"y=1"
+                f"x=2:"
+                f"y=2"
             )
 
-            # ============================================
-            # FFmpeg Command: CRF 23 for quality
-            # ============================================
+            # FFmpeg command with CRF 23 for quality
             cmd = [
                 'ffmpeg', '-i', download_path,
                 '-vf', drawtext_filter,
                 '-c:v', 'libx264',
                 '-preset', 'veryfast',
-                '-crf', '23',  # ✅ FIXED: Better quality
+                '-crf', '23',
                 '-c:a', 'copy',
                 '-c:s', 'copy',
                 '-map', '0',
@@ -385,7 +378,7 @@ async def start_processing(client, message):
 
             logger.info(f"FFmpeg command: {' '.join(cmd)}")
 
-            # Run FFmpeg
+            # Run FFmpeg with progress
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -393,38 +386,32 @@ async def start_processing(client, message):
             )
 
             if duration > 0:
-                progress_task = asyncio.create_task(
-                    monitor_ffmpeg_progress(process, download_msg, duration, "Processing")
+                asyncio.create_task(
+                    monitor_ffmpeg_progress(process, status_msg, duration, "Processing")
                 )
             
             await process.wait()
             
-            # ============================================
-            # CRITICAL FIX: GUARANTEE PROCESSED FILE EXISTS
-            # ============================================
+            # Check if processing was successful
             if process.returncode != 0 or not os.path.exists(output_path):
                 stderr = await process.stderr.read()
                 error_msg = stderr.decode()
                 logger.error(f"FFmpeg failed (code {process.returncode}): {error_msg}")
                 
-                return await download_msg.edit(
-                    f"**❌ Video Processing Failed**\n"
-                    f"FFmpeg error. Please contact support."
+                return await status_msg.edit_text(
+                    "**❌ Video Processing Failed**\n\n"
+                    "FFmpeg error occurred. Please contact support."
                 )
 
-            logger.info(f"FFmpeg SUCCESS: {output_path}")
-            
-            # ✅ GUARANTEE: output_path is the processed file
+            logger.info(f"✅ FFmpeg SUCCESS: {output_path}")
             final_file_size = os.path.getsize(output_path)
             logger.info(f"Original: {humanbytes(file_size)}, Processed: {humanbytes(final_file_size)}")
             
         else:
-            # ============================================
-            # NON-VIDEO: Just copy file (no watermark)
-            # ============================================
-            logger.info(f"Non-video file: {download_path}")
+            # Non-video: Just add metadata
+            logger.info(f"📄 Non-video file: {download_path}")
             
-            await download_msg.edit("**⚙️ Processing: Adding Metadata...**")
+            await status_msg.edit_text("**⚙️ Processing metadata...**\n\nAlmost done...")
             
             cmd = [
                 'ffmpeg', '-i', download_path,
@@ -447,16 +434,17 @@ async def start_processing(client, message):
             await process.wait()
             
             if process.returncode != 0 or not os.path.exists(output_path):
-                logger.warning("FFmpeg failed for non-video, using original")
+                logger.warning("FFmpeg failed for non-video, using original file")
                 output_path = download_path
             
             final_file_size = os.path.getsize(output_path)
 
-        # Check file size limit
+        # Check file size limit (2GB Telegram limit)
         if final_file_size > 2000 * 1024 * 1024:
-            return await download_msg.edit(
-                "**❌ File too large (>2GB)**\n"
-                "Telegram has a file size limit of 2GB."
+            return await status_msg.edit_text(
+                "**❌ File Too Large**\n\n"
+                "The processed file exceeds Telegram's 2GB limit.\n"
+                "Please try with a smaller file."
             )
 
         # Get caption and thumbnail
@@ -470,7 +458,7 @@ async def start_processing(client, message):
                 duration=convert(int(duration)),
             )
             if c_caption
-            else f"**{renamed_file_name}**"
+            else f"**📁 {renamed_file_name}**\n\n📦 Size: {humanbytes(final_file_size)}"
         )
 
         # Prepare thumbnail
@@ -491,12 +479,10 @@ async def start_processing(client, message):
                 logger.error(f"Thumbnail extraction error: {e}")
                 thumb_path = None
 
-        # ============================================
-        # CRITICAL: UPLOAD PROCESSED FILE (output_path)
-        # ============================================
-        await download_msg.edit("**📤 Uploading...**")
+        # STEP 3: UPLOAD
+        await status_msg.edit_text("**📤 Uploading to Telegram...**\n\nFinalizing...")
         
-        logger.info(f"UPLOADING FILE: {output_path}")  # ✅ Verification log
+        logger.info(f"🚀 UPLOADING FILE: {output_path}")
         
         try:
             upload_start = time.time()
@@ -504,70 +490,83 @@ async def start_processing(client, message):
             if media_type == "document":
                 await client.send_document(
                     message.chat.id,
-                    document=output_path,  # ✅ PROCESSED FILE
+                    document=output_path,
                     thumb=thumb_path,
                     caption=caption,
                     file_name=renamed_file_name,
                     force_document=True,
                     progress=progress_for_pyrogram,
-                    progress_args=("**📤 Uploading...**", download_msg, upload_start),
+                    progress_args=("**📤 Uploading...**", status_msg, upload_start),
                 )
             elif media_type == "video":
                 await client.send_video(
                     message.chat.id,
-                    video=output_path,  # ✅ PROCESSED FILE
+                    video=output_path,
                     caption=caption,
                     thumb=thumb_path,
                     file_name=renamed_file_name,
                     duration=int(duration),
                     supports_streaming=True,
                     progress=progress_for_pyrogram,
-                    progress_args=("**📤 Uploading...**", download_msg, upload_start),
+                    progress_args=("**📤 Uploading...**", status_msg, upload_start),
                 )
             elif media_type == "audio":
                 await client.send_audio(
                     message.chat.id,
-                    audio=output_path,  # ✅ PROCESSED FILE
+                    audio=output_path,
                     caption=caption,
                     thumb=thumb_path,
                     file_name=renamed_file_name,
                     duration=int(duration),
                     progress=progress_for_pyrogram,
-                    progress_args=("**📤 Uploading...**", download_msg, upload_start),
+                    progress_args=("**📤 Uploading...**", status_msg, upload_start),
                 )
             
-            await download_msg.delete()
+            # Delete status message after successful upload
+            try:
+                await status_msg.delete()
+            except:
+                pass
+            
             logger.info(f"✅ Upload SUCCESS: {renamed_file_name}")
             
         except Exception as e:
             logger.error(f"Upload error: {e}")
             traceback.print_exc()
             error_msg = str(e)
-            if len(error_msg) > 100:
-                error_msg = error_msg[:100] + "..."
-            await download_msg.edit(f"**❌ Upload Failed:** {error_msg}")
+            if len(error_msg) > 150:
+                error_msg = error_msg[:150] + "..."
+            await status_msg.edit_text(
+                f"**❌ Upload Failed**\n\n"
+                f"Error: {error_msg}\n\n"
+                f"Please try again or contact support."
+            )
 
     except Exception as e:
         logger.error(f"Processing error: {e}")
         traceback.print_exc()
-        if download_msg:
+        if status_msg:
             try:
                 error_msg = str(e)
-                if len(error_msg) > 100:
-                    error_msg = error_msg[:100] + "..."
-                await download_msg.edit(f"**❌ An error occurred:** {error_msg}")
+                if len(error_msg) > 150:
+                    error_msg = error_msg[:150] + "..."
+                await status_msg.edit_text(
+                    f"**❌ An Error Occurred**\n\n"
+                    f"Error: {error_msg}\n\n"
+                    f"Please try again or contact @AshuSupport"
+                )
             except:
                 pass
 
     finally:
+        # Clean up
         if file_id in renaming_operations:
             del renaming_operations[file_id]
         
-        # Cleanup
         for path in [download_path, output_path, thumb_path]:
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                    logger.info(f"Cleaned up: {path}")
+                    logger.info(f"🗑️ Cleaned up: {path}")
                 except Exception as e:
                     logger.error(f"Cleanup error for {path}: {e}")
