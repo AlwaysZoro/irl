@@ -1,8 +1,5 @@
 from pyrogram import Client, filters
 from helper.database import ZoroBhaiya
-import logging
-
-logger = logging.getLogger(__name__)
 
 @Client.on_message(filters.private & filters.command("autorename"))
 async def auto_rename_command(client, message):
@@ -53,7 +50,6 @@ async def auto_rename_command(client, message):
     # Save the format template to the database
     try:
         await ZoroBhaiya.set_format_template(user_id, format_template)
-        logger.info(f"User {user_id} set autorename format: {format_template}")
         
         # Verify it was saved by reading it back
         saved_format = await ZoroBhaiya.get_format_template(user_id)
@@ -71,9 +67,8 @@ async def auto_rename_command(client, message):
                 "Please try setting the format again.\n"
                 "If the issue persists, contact @AshuSupport"
             )
-    except Exception as e:
-        logger.error(f"Error saving format for user {user_id}: {e}")
-        await message.reply_text(
+        else:
+            await message.reply_text(
             "**❌ Error Saving Format!**\n\n"
             "Something went wrong. Please try again.\n"
             "If the issue persists, contact @AshuSupport"
@@ -112,14 +107,12 @@ async def set_media_command(client, message):
     # Save the preferred media type to the database
     try:
         await ZoroBhaiya.set_media_preference(user_id, media_type)
-        logger.info(f"User {user_id} set media preference: {media_type}")
         await message.reply_text(
             f"**✅ Media Preference Set Successfully!**\n\n"
             f"**🎥 Upload Type:** `{media_type}`\n\n"
             f"All your files will now be uploaded as {media_type}."
         )
-    except Exception as e:
-        logger.error(f"Error saving media preference for user {user_id}: {e}")
+    except:
         await message.reply_text(
             "**❌ Error Saving Preference!**\n\n"
             "Something went wrong. Please try again.\n"
