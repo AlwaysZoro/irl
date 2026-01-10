@@ -206,7 +206,7 @@ async def get_video_duration(file_path):
         return 0
 
 async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Processing"):
-    """Monitor FFmpeg progress in real-time"""
+    """Monitor FFmpeg progress in real-time with minutes display"""
     last_update = 0
     
     try:
@@ -228,24 +228,30 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
                             seconds_done = h*3600 + m*60 + s
                             percentage = min(int((seconds_done / duration) * 100), 100)
                             
+                            # Convert to minutes
+                            minutes_done = int(seconds_done / 60)
+                            seconds_remainder = int(seconds_done % 60)
+                            total_minutes = int(duration / 60)
+                            total_seconds = int(duration % 60)
+                            
                             bar_len = 20
                             filled = int((percentage / 100) * bar_len)
-                            bar = "■ " * filled + "□" * (bar_len - filled)
+                            bar = "█" * filled + "░" * (bar_len - filled)
                             
                             try:
                                 await download_msg.edit(
                                     f"**⚙️ {operation}**\n\n"
-                                    f"{bar}\n"
+                                    f"`{bar}`\n"
                                     f"**Progress:** {percentage}%\n"
-                                    f"**Time Processed:** {seconds_done}/{int(duration)}s"
+                                    f"**Time:** {minutes_done}:{seconds_remainder:02d} / {total_minutes}:{total_seconds:02d} min"
                                 )
                                 last_update = current_time
+                                logger.info(f"Progress updated: {percentage}% ({minutes_done}:{seconds_remainder:02d}/{total_minutes}:{total_seconds:02d})")
                             except Exception as edit_error:
-                                # Message edit failed, continue monitoring
                                 logger.debug(f"Edit failed: {edit_error}")
                                 pass
                     except Exception as e:
-                        logger.debug(f"Progress update error: {e}")
+                        logger.debug(f"Progress parse error: {e}")
     except Exception as e:
         logger.error(f"Monitor error: {e}")
 
@@ -389,7 +395,8 @@ async def start_processing(client, message):
             duration = await get_video_duration(download_path)
             logger.info(f"⏱️ Detected video duration: {duration}s")
         
-        await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
+        # Show initial processing message
+        await download_msg.edit("**⚙️ Processing: Starting...**")
 
         # ============================================
         # FIND FONT - WITH MULTIPLE FALLBACKS
@@ -532,13 +539,17 @@ async def start_processing(client, message):
                 # ALWAYS monitor progress for video files
                 progress_task = None
                 if is_video and duration > 0:
-                    logger.info(f"📊 Starting progress monitor for {duration}s video")
+                    logger.info(f"📊 Starting progress monitor for {duration}s video (Strategy: {strategy['name']})")
+                    # Start monitoring immediately
                     progress_task = asyncio.create_task(
-                        monitor_ffmpeg_progress(process, download_msg, duration, f"Processing ({strategy['name']})")
+                        monitor_ffmpeg_progress(process, download_msg, duration, strategy['name'])
                     )
+                else:
+                    # For non-video or unknown duration, show simple processing message
+                    await download_msg.edit(f"**⚙️ Processing: {strategy['name']}...**")
                 
                 # Wait for FFmpeg to complete
-                await process.wait()
+                returncode = await process.wait()
                 
                 # Cancel progress monitoring if it's still running
                 if progress_task and not progress_task.done():
@@ -548,8 +559,10 @@ async def start_processing(client, message):
                     except asyncio.CancelledError:
                         pass
                 
+                logger.info(f"FFmpeg completed with return code: {returncode}")
+                
                 # Check if successful
-                if process.returncode == 0 and os.path.exists(output_path):
+                if returncode == 0 and os.path.exists(output_path):
                     output_size = os.path.getsize(output_path)
                     if output_size > 0:
                         logger.info(f"✅ Strategy '{strategy['name']}' succeeded: {humanbytes(output_size)}")
@@ -558,14 +571,16 @@ async def start_processing(client, message):
                     else:
                         logger.error(f"❌ Strategy '{strategy['name']}' produced 0-byte file")
                 else:
-                    stderr = await process.stderr.read()
-                    error_msg = stderr.decode()[:500]
-                    logger.error(f"❌ Strategy '{strategy['name']}' failed: {error_msg}")
+                    # Read stderr to see what went wrong
+                    stderr_data = await process.stderr.read()
+                    error_msg = stderr_data.decode()[:500]
+                    logger.error(f"❌ Strategy '{strategy['name']}' failed (code {returncode}): {error_msg}")
                 
                 # Clean up failed output
                 if os.path.exists(output_path):
                     try:
                         os.remove(output_path)
+                        logger.info(f"Cleaned up failed output: {output_path}")
                     except:
                         pass
                 
