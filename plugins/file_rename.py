@@ -15,6 +15,7 @@ import math
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)  # Only log errors
 
 # --- QUEUE SYSTEM GLOBALS ---
 PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # 3 concurrent files
@@ -95,7 +96,6 @@ def extract_metadata_fast(filename):
     if not quality:
         quality = 'Unknown'
     
-    logger.info(f"Extracted: episode={episode}, season={season}, quality={quality}")
     return episode, season, quality
 
 def apply_rename_template(template, episode, season, quality):
@@ -131,7 +131,7 @@ async def queue_processor(client):
                 await start_processing(client, message)
             QUEUE.task_done()
         except Exception as e:
-            logger.error(f"Queue processor error: {e}")
+            logger.error(f"Queue error: {e}")
             traceback.print_exc()
 
 @Client.on_message(filters.private & (filters.document | filters.video | filters.audio))
@@ -143,13 +143,11 @@ async def auto_rename_files(client, message):
     
     try:
         format_template = await ZoroBhaiya.get_format_template(user_id)
-        logger.info(f"User {user_id} format template: {format_template}")
     except Exception as e:
         logger.error(f"Error fetching format for user {user_id}: {e}")
         format_template = None
     
     if not format_template or not format_template.strip():
-        logger.warning(f"User {user_id} has no format template set")
         return await message.reply_text(
             "**❌ Please Set An Auto Rename Format First!**\n\n"
             "**📝 Use:** `/autorename [format]`\n\n"
@@ -245,13 +243,11 @@ async def start_processing(client, message):
         # Get user settings
         try:
             format_template = await ZoroBhaiya.get_format_template(user_id)
-            logger.info(f"Processing file for user {user_id} with format: {format_template}")
         except Exception as e:
-            logger.error(f"Error fetching format during processing for user {user_id}: {e}")
+            logger.error(f"Error fetching format: {e}")
             format_template = None
         
         if not format_template or not format_template.strip():
-            logger.error(f"Format lost during processing for user {user_id}")
             return await message.reply_text(
                 "**❌ Error:** Format template lost during processing.\n"
                 "Please set it again with `/autorename`"
@@ -292,9 +288,6 @@ async def start_processing(client, message):
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
         
-        logger.info(f"Original: {file_name}")
-        logger.info(f"Renamed: {renamed_file_name}")
-        
         # Create directories
         os.makedirs("downloads", exist_ok=True)
         
@@ -315,21 +308,16 @@ async def start_processing(client, message):
         )
         
         if not os.path.exists(download_path):
-            logger.error(f"Download failed: File not found at {download_path}")
             return await status_msg.edit_text("**❌ Download Failed**\n\nFile not found after download.")
-
-        logger.info(f"✅ Downloaded: {download_path} ({humanbytes(file_size)})")
 
         # STEP 2: PROCESSING (Watermark & Metadata)
         is_video = is_video_file(download_path)
         
         if is_video:
-            logger.info(f"🎬 Video detected: {download_path}")
             
             # Get duration if not available
             if duration == 0:
                 duration = await get_video_duration(download_path)
-                logger.info(f"Detected video duration: {duration}s")
             
             # Show processing message
             await status_msg.edit_text("**⚙️ Processing metadata and watermark...**\n\nThis may take a moment...")
@@ -340,20 +328,17 @@ async def start_processing(client, message):
                 font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
             
             if not os.path.exists(font_path):
-                logger.warning("Font not found, using Arial")
                 font_path = "Arial"
-            else:
-                logger.info(f"Using font: {font_path}")
             
             # Watermark: Small, top-left, white, bold
             watermark_text = "ANIME ATLAS"
             drawtext_filter = (
                 f"drawtext=text='{watermark_text}':"
                 f"fontfile={font_path}:"
-                f"fontsize=15:"
+                f"fontsize=14:"
                 f"fontcolor=white:"
-                f"x=2:"
-                f"y=2"
+                f"x=3:"
+                f"y=3"
             )
 
             # FFmpeg command with CRF 23 for quality
@@ -376,8 +361,6 @@ async def start_processing(client, message):
                 '-y', '-progress', 'pipe:2', output_path
             ]
 
-            logger.info(f"FFmpeg command: {' '.join(cmd)}")
-
             # Run FFmpeg with progress
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -394,23 +377,15 @@ async def start_processing(client, message):
             
             # Check if processing was successful
             if process.returncode != 0 or not os.path.exists(output_path):
-                stderr = await process.stderr.read()
-                error_msg = stderr.decode()
-                logger.error(f"FFmpeg failed (code {process.returncode}): {error_msg}")
-                
                 return await status_msg.edit_text(
                     "**❌ Video Processing Failed**\n\n"
                     "FFmpeg error occurred. Please contact support."
                 )
 
-            logger.info(f"✅ FFmpeg SUCCESS: {output_path}")
             final_file_size = os.path.getsize(output_path)
-            logger.info(f"Original: {humanbytes(file_size)}, Processed: {humanbytes(final_file_size)}")
             
         else:
             # Non-video: Just add metadata
-            logger.info(f"📄 Non-video file: {download_path}")
-            
             await status_msg.edit_text("**⚙️ Processing metadata...**\n\nAlmost done...")
             
             cmd = [
@@ -423,8 +398,6 @@ async def start_processing(client, message):
                 '-y', output_path
             ]
             
-            logger.info(f"FFmpeg command: {' '.join(cmd)}")
-            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -434,7 +407,6 @@ async def start_processing(client, message):
             await process.wait()
             
             if process.returncode != 0 or not os.path.exists(output_path):
-                logger.warning("FFmpeg failed for non-video, using original file")
                 output_path = download_path
             
             final_file_size = os.path.getsize(output_path)
@@ -482,8 +454,6 @@ async def start_processing(client, message):
         # STEP 3: UPLOAD
         await status_msg.edit_text("**📤 Uploading to Telegram...**\n\nFinalizing...")
         
-        logger.info(f"🚀 UPLOADING FILE: {output_path}")
-        
         try:
             upload_start = time.time()
             
@@ -528,8 +498,6 @@ async def start_processing(client, message):
             except:
                 pass
             
-            logger.info(f"✅ Upload SUCCESS: {renamed_file_name}")
-            
         except Exception as e:
             logger.error(f"Upload error: {e}")
             traceback.print_exc()
@@ -567,6 +535,5 @@ async def start_processing(client, message):
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                    logger.info(f"🗑️ Cleaned up: {path}")
-                except Exception as e:
-                    logger.error(f"Cleanup error for {path}: {e}")
+                except:
+                    pass
