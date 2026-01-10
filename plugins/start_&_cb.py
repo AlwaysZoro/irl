@@ -11,8 +11,8 @@ async def start(client, message):
     button = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("📢 Updates", url="https://t.me/ZoroBhaiya"),
-                InlineKeyboardButton("💬 Support", url="https://t.me/AshuSupport"),
+                InlineKeyboardButton("📢 Updates", url="https://t.me/Sanji_Fr"),
+                InlineKeyboardButton("💬 Support", url="https://t.me/Sanji_Fr"),
             ],
             [
                 InlineKeyboardButton("⚙️ Help", callback_data="help"),
@@ -57,13 +57,19 @@ async def cb_handler(client, query: CallbackQuery):
         )
     elif data == "help":
         await query.message.edit_text(
-            text=Txt.HELP_TXT.format(client.mention),
+            text=Txt.HELP_TXT.format(query.from_user.mention),
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
                 [
-                    [InlineKeyboardButton("⚙️ Setup AutoRename Format ⚙️", callback_data="file_names")],
-                    [InlineKeyboardButton("🖼️ Thumbnail", callback_data="thumbnail"), InlineKeyboardButton("✏️ Caption", callback_data="caption")],
-                    [InlineKeyboardButton("🏠 Home", callback_data="home"), InlineKeyboardButton("💰 Donate", callback_data="donate")],
+                    [InlineKeyboardButton("⚙️ Setup AutoRename Format", callback_data="file_names")],
+                    [
+                        InlineKeyboardButton("🖼️ Thumbnail", callback_data="thumbnail"), 
+                        InlineKeyboardButton("✏️ Caption", callback_data="caption")
+                    ],
+                    [
+                        InlineKeyboardButton("🏠 Home", callback_data="home"), 
+                        InlineKeyboardButton("💰 Donate", callback_data="donate")
+                    ],
                 ]
             ),
         )
@@ -72,16 +78,22 @@ async def cb_handler(client, query: CallbackQuery):
             text=Txt.ABOUT_TXT,
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("✖️ Close", callback_data="close"), InlineKeyboardButton("🔙 Back", callback_data="home")]]
+                [[
+                    InlineKeyboardButton("✖️ Close", callback_data="close"), 
+                    InlineKeyboardButton("🔙 Back", callback_data="home")
+                ]]
             ),
         )
     elif data == "close":
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except:
+            pass
     elif data == "file_names":
         format_template = await ZoroBhaiya.get_format_template(user_id)
         await query.message.edit_text(
             text=Txt.FILE_NAME_TXT.format(
-                format_template=format_template or "Not Set - Use: /autorename [format]"
+                format_template=format_template or "❌ Not Set - Use: /autorename [format]"
             ),
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
