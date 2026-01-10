@@ -26,44 +26,45 @@ class Config(object):
 class Txt(object):
     # part of text configuration
         
-    START_TXT = """<b>👋 Hello {} 
+    START_TXT = """**👋 Hello {}**
     
-✨ This Is An Advanced Auto Rename Bot Modified for <b>Anime Atlas</b>.
+**✨ This Is An Advanced Auto Rename Bot Modified for Anime Atlas.**
 
-🎯 <u>What I Can Do:</u>
+**🎯 What I Can Do:**
 • Automatically rename files with custom templates
 • Add "ANIME ATLAS" watermark to videos
 • Embed custom metadata
 • Support files up to 4GB
 
-📊 <b>Processing Capacity:</b> 3 files simultaneously
-📦 <b>Max File Size:</b> 4GB
+**📊 Processing Capacity:** 3 files simultaneously
+**📦 Max File Size:** 4GB
 
-Click Help button below to get started! 👇</b>
+**Click Help button below to get started! 👇**
 """
     
-    FILE_NAME_TXT = """<b><u>🎬 SETUP AUTO RENAME FORMAT</u></b>
+    FILE_NAME_TXT = """**🎬 SETUP AUTO RENAME FORMAT**
 
-Use these keywords to create your custom file name:
+**Use these keywords to create your custom file name:**
 
-✅ <code>{episode}</code> - Episode Number
-✅ <code>{quality}</code> - Video Resolution
-✅ <code>{season}</code> - Season Number
+✅ `{{episode}}` - Episode Number
+✅ `{{quality}}` - Video Resolution
+✅ `{{season}}` - Season Number
 
-<b>📝 Example:</b> 
-<code>/autorename Naruto Shippuden S{season}E{episode} [{quality}] [Dual]</code>
+**📝 Example:**
+`/autorename Naruto Shippuden S{{season}}E{{episode}} [{{quality}}] [Dual]`
 
-<b>🔧 Your Current Format:</b> 
-<code>{format_template}</code>"""
+**🔧 Your Current Format:**
+`{format_template}`
+"""
     
-    ABOUT_TXT = """<b>🤖 Bot Information</b>
+    ABOUT_TXT = """**🤖 Bot Information**
 
-<b>📛 Name:</b> Auto Rename Bot
-<b>🔢 Version:</b> 2.0 Advanced
-<b>📝 Language:</b> <a href='https://python.org'>Python 3</a>
-<b>📚 Library:</b> <a href='https://pyrogram.org'>Pyrogram 2.0</a>
+**📛 Name:** Auto Rename Bot
+**📢 Version:** 2.0 Advanced
+**🔍 Language:** <a href='https://python.org'>Python 3</a>
+**📚 Library:** <a href='https://pyrogram.org'>Pyrogram 2.0</a>
 
-<b>⚙️ Features:</b>
+**⚙️ Features:**
   ✅ Auto Rename with Templates
   ✅ Video Watermarking (ANIME ATLAS)
   ✅ Custom Metadata Management
@@ -71,67 +72,72 @@ Use these keywords to create your custom file name:
   ✅ Real-time Progress Tracking
   ✅ Support up to 4GB Files
     
-<b>♻️ Modified For:</b> Anime Atlas
-<b>👨‍💻 Developer:</b> @AshuSupport"""
+**♻️ Modified For:** Anime Atlas
+**👨‍💻 Developer:** @AshuSupport
+"""
 
     
-    THUMBNAIL_TXT = """<b><u>🖼️ HOW TO SET THUMBNAIL</u></b>
+    THUMBNAIL_TXT = """**🖼️ HOW TO SET THUMBNAIL**
     
-📌 <b>Setting Custom Thumbnail:</b>
+**📌 Setting Custom Thumbnail:**
 Simply send me a photo and I'll save it as your thumbnail!
 
-<b>📋 Available Commands:</b>
-• <code>/viewthumb</code> - View your current thumbnail
-• <code>/delthumb</code> - Delete your thumbnail
+**📋 Available Commands:**
+• `/viewthumb` - View your current thumbnail
+• `/delthumb` - Delete your thumbnail
 
-💡 <b>Tip:</b> Use high-quality images for best results!"""
+**💡 Tip:** Use high-quality images for best results!
+"""
 
-    CAPTION_TXT = """<b><u>📝 HOW TO SET CAPTION</u></b>
+    CAPTION_TXT = """**📝 HOW TO SET CAPTION**
     
-<b>📋 Available Commands:</b>
-• <code>/set_caption</code> - Set your custom caption
-• <code>/see_caption</code> - View your current caption
-• <code>/del_caption</code> - Delete your caption
+**📋 Available Commands:**
+• `/set_caption` - Set your custom caption
+• `/see_caption` - View your current caption
+• `/del_caption` - Delete your caption
 
-<b>🔤 Available Variables:</b>
-• <code>{filename}</code> - File name
-• <code>{filesize}</code> - File size
-• <code>{duration}</code> - Video duration
+**📤 Available Variables:**
+• `{filename}` - File name
+• `{filesize}` - File size
+• `{duration}` - Video duration
 
-<b>📝 Example:</b>
-<code>/set_caption 📕 Name: {filename}
-🔗 Size: {filesize}
-⏰ Duration: {duration}</code>"""
+**📝 Example:**
+`/set_caption 📕 Name: {filename}
+📗 Size: {filesize}
+⏰ Duration: {duration}`
+"""
 
-    PROGRESS_BAR = """<b>\n
-╭━━━━━━━━━━━━━━━━━━━➣
+    PROGRESS_BAR = """**\n
+╭──────────────────⟢
 ┣⪼ 🗃️ Size: {1} / {2}
 ┣⪼ ⏳ Progress: {0}%
 ┣⪼ 🚀 Speed: {3}/s
 ┣⪼ ⏱️ Time: {4}
-╰━━━━━━━━━━━━━━━━━━━➣ </b>"""
+╰──────────────────⟢ **
+"""
     
     
-    DONATE_TXT = """<b>🥲 Thanks For Showing Interest In Donation! ❤️</b>
+    DONATE_TXT = """**🥲 Thanks For Showing Interest In Donation! ❤️**
     
 If You Like My Bots & Projects, You Can 🎁 Donate Me Any Amount From 10 Rs Upto Your Choice.
     
-<b>💳 UPI ID:</b> <code>KHELKHATAMBETA</code>
+**💳 UPI ID:** `KHELKHATAMBETA`
 
-Your support helps keep this bot running! 🙏"""
+Your support helps keep this bot running! 🙏
+"""
     
-    HELP_TXT = """<b>👋 Hey {}</b>
+    HELP_TXT = """**👋 Hey {}**
     
-<b>📚 How To Use This Bot:</b>
+**📚 How To Use This Bot:**
 
-<b>Step 1️⃣:</b> Set your auto rename format
-Use: <code>/autorename [format]</code>
+**Step 1️⃣:** Set your auto rename format
+Use: `/autorename [format]`
 
-<b>Step 2️⃣:</b> Send me any file (video/document/audio)
+**Step 2️⃣:** Send me any file (video/document/audio)
 
-<b>Step 3️⃣:</b> Wait for processing & enjoy! ✨
+**Step 3️⃣:** Wait for processing & enjoy! ✨
 
-<b>⚙️ Bot Features:</b>
+**⚙️ Bot Features:**
 ✅ Auto rename with custom templates
 ✅ Add watermark to videos
 ✅ Set custom metadata
@@ -139,11 +145,12 @@ Use: <code>/autorename [format]</code>
 ✅ Real-time progress tracking
 ✅ Support files up to 4GB
 
-<b>📋 All Commands:</b>
-• <code>/autorename</code> - Set rename format
-• <code>/setmedia</code> - Set output type
-• <code>/set_caption</code> - Set custom caption
-• <code>/viewthumb</code> - View thumbnail
-• <code>/tutorial</code> - Detailed guide
+**📋 All Commands:**
+• `/autorename` - Set rename format
+• `/setmedia` - Set output type
+• `/set_caption` - Set custom caption
+• `/viewthumb` - View thumbnail
+• `/tutorial` - Detailed guide
 
-<b>💬 Need Help?</b> Join @AshuSupport"""
+**💬 Need Help?** Join @AshuSupport
+"""
