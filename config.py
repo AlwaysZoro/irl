@@ -97,14 +97,14 @@ Simply send me a photo and I'll save it as your thumbnail!
 • `/del_caption` - Delete your caption
 
 **📤 Available Variables:**
-• `{filename}` - File name
-• `{filesize}` - File size
-• `{duration}` - Video duration
+• `{{filename}}` - File name
+• `{{filesize}}` - File size
+• `{{duration}}` - Video duration
 
 **📝 Example:**
-`/set_caption 📕 Name: {filename}
-📗 Size: {filesize}
-⏰ Duration: {duration}`
+`/set_caption 📕 Name: {{filename}}
+📗 Size: {{filesize}}
+⏰ Duration: {{duration}}`
 """
 
     PROGRESS_BAR = """**\n
