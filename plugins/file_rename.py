@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # Fixed: 3 concurrent
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -27,56 +27,49 @@ renaming_operations = {}
 # ============================================
 # FIXED REGEX PATTERNS - ORDER MATTERS
 # ============================================
-# Pattern to extract episode number - IMPROVED
 EPISODE_PATTERNS = [
-    re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Space before/after: " 1155 " or " 1155["
-    re.compile(r'^(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Start of string: "1155 " or "1155["
-    re.compile(r'[\]\)][\s\-_]?(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # After bracket: "] 1155 "
-    re.compile(r'[Ee][Pp]?[\s\-_]?(\d+)', re.IGNORECASE),  # EP123, E123, ep 123
-    re.compile(r'[Ee]pisode[\s\-_]?(\d+)', re.IGNORECASE),  # Episode 123
-    re.compile(r'S\d+[Ee](\d+)', re.IGNORECASE),  # S01E12
-    re.compile(r'[\-_\s](\d{1,4})[\.\-_\s]*(?:v\d+)?$', re.IGNORECASE),  # End: "- 05" or " 05.mkv"
+    re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),
+    re.compile(r'^(\d{3,4})[\s\-_\[]', re.IGNORECASE),
+    re.compile(r'[\]\)][\s\-_]?(\d{3,4})[\s\-_\[]', re.IGNORECASE),
+    re.compile(r'[Ee][Pp]?[\s\-_]?(\d+)', re.IGNORECASE),
+    re.compile(r'[Ee]pisode[\s\-_]?(\d+)', re.IGNORECASE),
+    re.compile(r'S\d+[Ee](\d+)', re.IGNORECASE),
+    re.compile(r'[\-_\s](\d{1,4})[\.\-_\s]*(?:v\d+)?$', re.IGNORECASE),
 ]
 
-# Pattern to extract season number
 SEASON_PATTERNS = [
-    re.compile(r'[Ss]eason[\s\-_]?(\d+)', re.IGNORECASE),  # Season 1
-    re.compile(r'[Ss](\d+)[Ee]\d+', re.IGNORECASE),  # S01E12
-    re.compile(r'[\s\-_][Ss](\d+)[\s\-_\[]', re.IGNORECASE),  # " S1 " or " S1["
+    re.compile(r'[Ss]eason[\s\-_]?(\d+)', re.IGNORECASE),
+    re.compile(r'[Ss](\d+)[Ee]\d+', re.IGNORECASE),
+    re.compile(r'[\s\-_][Ss](\d+)[\s\-_\[]', re.IGNORECASE),
 ]
 
-# Pattern to extract quality - FIXED
 QUALITY_PATTERNS = [
-    re.compile(r'\[(\d{3,4}[pP])\]', re.IGNORECASE),  # [480p], [1080p]
-    re.compile(r'\((\d{3,4}[pP])\)', re.IGNORECASE),  # (480p), (1080p)
-    re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\[]', re.IGNORECASE),  # 480p , 1080p[
-    re.compile(r'\b(\d{3,4}[pP])\b', re.IGNORECASE),  # 480p, 1080p (word boundary)
-    re.compile(r'\b(4[Kk])\b', re.IGNORECASE),  # 4K
-    re.compile(r'\b(2[Kk])\b', re.IGNORECASE),  # 2K
-    re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b', re.IGNORECASE),  # HDRIP
-    re.compile(r'\b(4[Kk][Xx]26[45])\b', re.IGNORECASE),  # 4Kx264, 4Kx265
+    re.compile(r'\[(\d{3,4}[pP])\]', re.IGNORECASE),
+    re.compile(r'\((\d{3,4}[pP])\)', re.IGNORECASE),
+    re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\[]', re.IGNORECASE),
+    re.compile(r'\b(\d{3,4}[pP])\b', re.IGNORECASE),
+    re.compile(r'\b(4[Kk])\b', re.IGNORECASE),
+    re.compile(r'\b(2[Kk])\b', re.IGNORECASE),
+    re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b', re.IGNORECASE),
+    re.compile(r'\b(4[Kk][Xx]26[45])\b', re.IGNORECASE),
 ]
 
 def extract_metadata_fast(filename):
-    """
-    OPTIMIZED: Extract all metadata in ONE pass
-    Returns: (episode, season, quality)
-    """
-    # Remove file extension for cleaner parsing
+    """Extract metadata from filename"""
     name_only = os.path.splitext(filename)[0]
     
     episode = None
     season = None
     quality = None
     
-    # Extract episode number - try patterns in order
+    # Extract episode
     for pattern in EPISODE_PATTERNS:
         match = pattern.search(name_only)
         if match:
             episode = match.group(1)
             break
     
-    # Extract season number
+    # Extract season
     for pattern in SEASON_PATTERNS:
         match = pattern.search(name_only)
         if match:
@@ -88,49 +81,43 @@ def extract_metadata_fast(filename):
         match = pattern.search(name_only)
         if match:
             quality = match.group(1)
-            # Normalize quality format
             if quality.lower() in ['4k', '2k']:
                 quality = quality.upper()
             elif 'p' in quality.lower():
-                quality = quality.lower()  # 480p, 1080p
+                quality = quality.lower()
             elif 'hdrip' in quality.lower():
                 quality = 'HDRIP'
             break
     
-    # Set defaults for missing values
+    # Defaults
+    if not season:
+        season = '1'
     if not quality:
         quality = 'Unknown'
     
-    logger.info(f"Extracted from '{filename}': episode={episode}, season={season}, quality={quality}")
-    
+    logger.info(f"Extracted: episode={episode}, season={season}, quality={quality}")
     return episode, season, quality
 
 def apply_rename_template(template, episode, season, quality):
-    """
-    FIXED: Apply template with proper placeholder replacement
-    """
+    """Apply template with placeholders"""
     result = template
     
-    # Replace {episode} - keep as-is if found, otherwise remove placeholder
     if '{episode}' in result:
-        if episode:
-            result = result.replace('{episode}', episode)
-        else:
-            # Remove placeholder if no episode found
-            result = result.replace('{episode}', 'XX')
+        result = result.replace('{episode}', episode if episode else 'XX')
     
-    # Replace {season} - keep as-is if found, otherwise use default
     if '{season}' in result:
-        if season:
-            result = result.replace('{season}', season.zfill(2))
-        else:
-            result = result.replace('{season}', '01')
+        result = result.replace('{season}', season.zfill(2))
     
-    # Replace {quality}
     if '{quality}' in result:
         result = result.replace('{quality}', quality)
     
     return result
+
+def is_video_file(file_path):
+    """Check if file is a video by extension"""
+    video_extensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg']
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in video_extensions
 
 async def queue_processor(client):
     """Background task that processes queue"""
@@ -180,12 +167,12 @@ async def auto_rename_files(client, message):
     await QUEUE.put(message)
     position = QUEUE.qsize()
     
-    if position > 2:
+    if position > 3:
         await message.reply_text(
             f"**⏳ Added to Queue**\n"
-            f"**Position:** {position - 2}\n"
+            f"**Position:** {position - 3}\n"
             f"**Status:** Waiting for processing slot...\n"
-            f"**Currently Processing:** 2 files"
+            f"**Currently Processing:** 3 files"
         )
 
 async def get_video_duration(file_path):
@@ -228,7 +215,7 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
                         
                         bar_len = 20
                         filled = int((percentage / 100) * bar_len)
-                        bar = "■ " * filled + "□" * (bar_len - filled)
+                        bar = "▰ " * filled + "▱" * (bar_len - filled)
                         
                         await download_msg.edit(
                             f"**⚙️ {operation}...**\n\n"
@@ -292,14 +279,10 @@ async def start_processing(client, message):
 
         renaming_operations[file_id] = datetime.now()
 
-        # ============================================
-        # FIXED: Extract metadata ONCE - FAST
-        # ============================================
+        # Extract metadata
         episode, season, quality = extract_metadata_fast(file_name)
         
-        # ============================================
-        # FIXED: Apply template correctly - NO CORRUPTION
-        # ============================================
+        # Apply template
         renamed_template = apply_rename_template(format_template, episode, season, quality)
         
         _, file_extension = os.path.splitext(file_name)
@@ -311,10 +294,10 @@ async def start_processing(client, message):
         # Create directories
         os.makedirs("downloads", exist_ok=True)
         
-        # FIXED: No timestamp prefix in final filename
+        # File paths
         timestamp = int(time.time())
-        download_path = f"downloads/{timestamp}_{file_name}"  # Temp download path
-        output_path = f"downloads/output_{timestamp}{file_extension}"  # Final output path
+        download_path = f"downloads/{timestamp}_{file_name}"
+        output_path = f"downloads/output_{timestamp}{file_extension}"
         
         download_msg = await message.reply_text("🚀 **Starting Download...**")
 
@@ -332,129 +315,142 @@ async def start_processing(client, message):
 
         logger.info(f"Downloaded: {download_path} ({file_size} bytes)")
 
-        # Check if video processing needed
-        is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v']
-        
-        if duration == 0 and is_video:
-            duration = await get_video_duration(download_path)
-            logger.info(f"Detected video duration: {duration}s")
-        
-        await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
-
         # ============================================
-        # FIXED: ONE PASS FFMPEG - METADATA + WATERMARK
-        # NO DOUBLE ENCODING - OPTIMIZED SIZE
+        # CRITICAL FIX: DETECT VIDEO BY FILE EXTENSION
         # ============================================
-        
-        # Find ZURAMBI font
-        font_path = None
-        font_paths_to_try = [
-            "/usr/share/fonts/truetype/custom/zurambi.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-        ]
-        for fp in font_paths_to_try:
-            if os.path.exists(fp):
-                font_path = fp
-                logger.info(f"Using font: {font_path}")
-                break
-        
-        if not font_path:
-            font_path = "/helper/ZURAMBI.ttf"
-            logger.warning(f"ZURAMBI font not found, using fallback: {font_path}")
-        
-        # ============================================
-        # FIXED WATERMARK: ZURAMBI, WHITE, BOLD, SMALL, TOP-LEFT
-        # Position: x=10, y=10 (stuck to top-left corner)
-        # Size: 20 (small)
-        # ============================================
-        watermark_text = "ANIME ATLAS"
-        drawtext_filter = (
-            f"drawtext=text='{watermark_text}':"
-            f"fontfile={font_path}:"
-            f"fontsize=20:"
-            f"fontcolor=white:"
-            f"x=10:"
-            f"y=10:"
-            f"borderw=2:"
-            f"bordercolor=black"
-        )
-
-        # Build FFmpeg command - ONE PASS ONLY
-        cmd = ['ffmpeg', '-i', download_path]
+        is_video = is_video_file(download_path)
         
         if is_video:
+            logger.info(f"Video detected: {download_path}")
+            
+            # Get duration if not available
+            if duration == 0:
+                duration = await get_video_duration(download_path)
+                logger.info(f"Detected video duration: {duration}s")
+            
+            await download_msg.edit("**⚙️ Processing: Adding Watermark & Metadata...**")
+
+            # Find font
+            font_path = None
+            font_paths_to_try = [
+                "helper/ZURAMBI.ttf",  # ✅ FIXED: Correct path
+                "/usr/share/fonts/truetype/custom/zurambi.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ]
+            for fp in font_paths_to_try:
+                if os.path.exists(fp):
+                    font_path = fp
+                    logger.info(f"Using font: {font_path}")
+                    break
+            
+            if not font_path:
+                logger.warning("No font found, using default")
+                font_path = "Arial"  # Fallback
+            
             # ============================================
-            # FIXED: OPTIMIZED ENCODING - PREVENT FILE BLOAT
-            # CRF 27: Good quality, smaller file size
-            # Preset veryfast: Fast encoding
-            # Audio: Copy (no re-encode)
+            # WATERMARK: Small, top-left, white, bold
             # ============================================
-            cmd.extend([
+            watermark_text = "ANIME ATLAS"
+            drawtext_filter = (
+                f"drawtext=text='{watermark_text}':"
+                f"fontfile={font_path}:"
+                f"fontsize=10:"
+                f"fontcolor=white:"
+                f"x=1:"
+                f"y=1"
+            )
+
+            # ============================================
+            # FFmpeg Command: CRF 23 for quality
+            # ============================================
+            cmd = [
+                'ffmpeg', '-i', download_path,
                 '-vf', drawtext_filter,
                 '-c:v', 'libx264',
                 '-preset', 'veryfast',
-                '-crf', '27',
+                '-crf', '23',  # ✅ FIXED: Better quality
                 '-c:a', 'copy',
                 '-c:s', 'copy',
                 '-map', '0',
                 '-movflags', '+faststart',
                 '-max_muxing_queue_size', '9999',
-                # Metadata
                 '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
                 '-metadata', 'artist=Anime Atlas',
                 '-metadata', 'author=Anime Atlas',
                 '-metadata:s:v', 'title=Join Anime Atlas',
                 '-metadata:s:a', 'title=Anime Atlas',
-            ])
+                '-y', '-progress', 'pipe:2', output_path
+            ]
+
+            logger.info(f"FFmpeg command: {' '.join(cmd)}")
+
+            # Run FFmpeg
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            if duration > 0:
+                progress_task = asyncio.create_task(
+                    monitor_ffmpeg_progress(process, download_msg, duration, "Processing")
+                )
+            
+            await process.wait()
+            
+            # ============================================
+            # CRITICAL FIX: GUARANTEE PROCESSED FILE EXISTS
+            # ============================================
+            if process.returncode != 0 or not os.path.exists(output_path):
+                stderr = await process.stderr.read()
+                error_msg = stderr.decode()
+                logger.error(f"FFmpeg failed (code {process.returncode}): {error_msg}")
+                
+                return await download_msg.edit(
+                    f"**❌ Video Processing Failed**\n"
+                    f"FFmpeg error. Please contact support."
+                )
+
+            logger.info(f"FFmpeg SUCCESS: {output_path}")
+            
+            # ✅ GUARANTEE: output_path is the processed file
+            final_file_size = os.path.getsize(output_path)
+            logger.info(f"Original: {humanbytes(file_size)}, Processed: {humanbytes(final_file_size)}")
+            
         else:
-            # Non-video: just copy and add metadata
-            cmd.extend([
+            # ============================================
+            # NON-VIDEO: Just copy file (no watermark)
+            # ============================================
+            logger.info(f"Non-video file: {download_path}")
+            
+            await download_msg.edit("**⚙️ Processing: Adding Metadata...**")
+            
+            cmd = [
+                'ffmpeg', '-i', download_path,
                 '-c', 'copy',
                 '-map', '0',
                 '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
                 '-metadata', 'artist=Anime Atlas',
                 '-metadata', 'author=Anime Atlas',
-            ])
-        
-        cmd.extend(['-y', '-progress', 'pipe:2', output_path])
-
-        logger.info(f"FFmpeg command: {' '.join(cmd)}")
-
-        # Run FFmpeg
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        if is_video and duration > 0:
-            progress_task = asyncio.create_task(
-                monitor_ffmpeg_progress(process, download_msg, duration, "Processing")
-            )
-        
-        await process.wait()
-        
-        if process.returncode != 0:
-            stderr = await process.stderr.read()
-            error_msg = stderr.decode()
-            logger.error(f"FFmpeg error (code {process.returncode}): {error_msg}")
+                '-y', output_path
+            ]
             
-            if not os.path.exists(output_path):
-                if os.path.exists(download_path):
-                    logger.warning("FFmpeg failed, using original file")
-                    output_path = download_path
-                else:
-                    return await download_msg.edit(
-                        f"**❌ Processing Failed**\n"
-                        f"FFmpeg error code: {process.returncode}"
-                    )
-
-        logger.info(f"FFmpeg completed: {output_path}")
-        
-        final_file_size = os.path.getsize(output_path)
-        logger.info(f"Original size: {humanbytes(file_size)}, Final size: {humanbytes(final_file_size)}")
+            logger.info(f"FFmpeg command: {' '.join(cmd)}")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            await process.wait()
+            
+            if process.returncode != 0 or not os.path.exists(output_path):
+                logger.warning("FFmpeg failed for non-video, using original")
+                output_path = download_path
+            
+            final_file_size = os.path.getsize(output_path)
 
         # Check file size limit
         if final_file_size > 2000 * 1024 * 1024:
@@ -495,8 +491,12 @@ async def start_processing(client, message):
                 logger.error(f"Thumbnail extraction error: {e}")
                 thumb_path = None
 
-        # Upload
+        # ============================================
+        # CRITICAL: UPLOAD PROCESSED FILE (output_path)
+        # ============================================
         await download_msg.edit("**📤 Uploading...**")
+        
+        logger.info(f"UPLOADING FILE: {output_path}")  # ✅ Verification log
         
         try:
             upload_start = time.time()
@@ -504,10 +504,10 @@ async def start_processing(client, message):
             if media_type == "document":
                 await client.send_document(
                     message.chat.id,
-                    document=output_path,
+                    document=output_path,  # ✅ PROCESSED FILE
                     thumb=thumb_path,
                     caption=caption,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     force_document=True,
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
@@ -515,10 +515,10 @@ async def start_processing(client, message):
             elif media_type == "video":
                 await client.send_video(
                     message.chat.id,
-                    video=output_path,
+                    video=output_path,  # ✅ PROCESSED FILE
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     duration=int(duration),
                     supports_streaming=True,
                     progress=progress_for_pyrogram,
@@ -527,17 +527,17 @@ async def start_processing(client, message):
             elif media_type == "audio":
                 await client.send_audio(
                     message.chat.id,
-                    audio=output_path,
+                    audio=output_path,  # ✅ PROCESSED FILE
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,  # FIXED: Use clean filename
+                    file_name=renamed_file_name,
                     duration=int(duration),
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
                 )
             
             await download_msg.delete()
-            logger.info(f"Upload completed: {renamed_file_name}")
+            logger.info(f"✅ Upload SUCCESS: {renamed_file_name}")
             
         except Exception as e:
             logger.error(f"Upload error: {e}")
