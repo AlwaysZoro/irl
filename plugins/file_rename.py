@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # 3 parallel processes
+PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -180,12 +180,12 @@ async def auto_rename_files(client, message):
     await QUEUE.put(message)
     position = QUEUE.qsize()
     
-    if position > 3:
+    if position > 2:
         await message.reply_text(
             f"**⏳ Added to Queue**\n"
-            f"**Position:** {position - 3}\n"
+            f"**Position:** {position - 2}\n"
             f"**Status:** Waiting for processing slot...\n"
-            f"**Currently Processing:** 3 files"
+            f"**Currently Processing:** 2 files"
         )
 
 async def get_video_duration(file_path):
@@ -206,54 +206,39 @@ async def get_video_duration(file_path):
         return 0
 
 async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Processing"):
-    """Monitor FFmpeg progress in real-time with minutes display"""
+    """Monitor FFmpeg progress in real-time"""
     last_update = 0
     
-    try:
-        while True:
-            line = await process.stderr.readline()
-            if not line:
-                break
-            
-            line_str = line.decode('utf-8', errors='ignore').strip()
-            
-            # Look for time information
-            if "time=" in line_str and duration > 0:
-                current_time = time.time()
-                if current_time - last_update > 2:  # Update every 2 seconds
-                    try:
-                        time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
-                        if time_match:
-                            h, m, s = map(int, time_match.groups())
-                            seconds_done = h*3600 + m*60 + s
-                            percentage = min(int((seconds_done / duration) * 100), 100)
-                            
-                            # Convert to minutes
-                            minutes_done = int(seconds_done / 60)
-                            seconds_remainder = int(seconds_done % 60)
-                            total_minutes = int(duration / 60)
-                            total_seconds = int(duration % 60)
-                            
-                            bar_len = 20
-                            filled = int((percentage / 100) * bar_len)
-                            bar = "█" * filled + "░" * (bar_len - filled)
-                            
-                            try:
-                                await download_msg.edit(
-                                    f"**⚙️ {operation}**\n\n"
-                                    f"`{bar}`\n"
-                                    f"**Progress:** {percentage}%\n"
-                                    f"**Time:** {minutes_done}:{seconds_remainder:02d} / {total_minutes}:{total_seconds:02d} min"
-                                )
-                                last_update = current_time
-                                logger.info(f"Progress updated: {percentage}% ({minutes_done}:{seconds_remainder:02d}/{total_minutes}:{total_seconds:02d})")
-                            except Exception as edit_error:
-                                logger.debug(f"Edit failed: {edit_error}")
-                                pass
-                    except Exception as e:
-                        logger.debug(f"Progress parse error: {e}")
-    except Exception as e:
-        logger.error(f"Monitor error: {e}")
+    while True:
+        line = await process.stderr.readline()
+        if not line:
+            break
+        
+        line_str = line.decode('utf-8', errors='ignore').strip()
+        
+        if "time=" in line_str and duration > 0:
+            current_time = time.time()
+            if current_time - last_update > 3:
+                try:
+                    time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
+                    if time_match:
+                        h, m, s = map(int, time_match.groups())
+                        seconds_done = h*3600 + m*60 + s
+                        percentage = min(int((seconds_done / duration) * 100), 100)
+                        
+                        bar_len = 20
+                        filled = int((percentage / 100) * bar_len)
+                        bar = "■ " * filled + "□" * (bar_len - filled)
+                        
+                        await download_msg.edit(
+                            f"**⚙️ {operation}...**\n\n"
+                            f"{bar}\n"
+                            f"**Progress:** {percentage}%\n"
+                            f"**Time Processed:** {seconds_done}/{int(duration)}s"
+                        )
+                        last_update = current_time
+                except Exception as e:
+                    logger.debug(f"Progress update error: {e}")
 
 async def start_processing(client, message):
     """Main processing function for files"""
@@ -320,317 +305,165 @@ async def start_processing(client, message):
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
         
-        logger.info(f"📄 Original: {file_name}")
-        logger.info(f"📝 Renamed: {renamed_file_name}")
+        logger.info(f"Original: {file_name}")
+        logger.info(f"Renamed: {renamed_file_name}")
         
         # Create directories
         os.makedirs("downloads", exist_ok=True)
         
-        # Safe temp file paths
+        # FIXED: No timestamp prefix in final filename
         timestamp = int(time.time())
-        download_path = f"downloads/input_{timestamp}{file_extension}"
-        output_path = f"downloads/output_{timestamp}{file_extension}"
+        download_path = f"downloads/{timestamp}_{file_name}"  # Temp download path
+        output_path = f"downloads/output_{timestamp}{file_extension}"  # Final output path
         
         download_msg = await message.reply_text("🚀 **Starting Download...**")
 
-        # ============================================
-        # DOWNLOAD WITH VERIFICATION (3 ATTEMPTS)
-        # ============================================
-        max_download_attempts = 3
-        download_success = False
+        # Download file
+        await client.download_media(
+            message,
+            file_name=download_path,
+            progress=progress_for_pyrogram,
+            progress_args=("**📥 Downloading...**", download_msg, time.time()),
+        )
         
-        for attempt in range(1, max_download_attempts + 1):
-            try:
-                logger.info(f"📥 Download attempt {attempt}/{max_download_attempts}")
-                
-                actual_path = await client.download_media(
-                    message,
-                    file_name=download_path,
-                    progress=progress_for_pyrogram,
-                    progress_args=("**📥 Downloading...**", download_msg, time.time()),
-                )
-                
-                # Verify download
-                if actual_path and os.path.exists(actual_path):
-                    downloaded_size = os.path.getsize(actual_path)
-                    
-                    if downloaded_size > 0:
-                        logger.info(f"✅ Downloaded: {humanbytes(downloaded_size)}")
-                        
-                        # Update path if pyrogram saved elsewhere
-                        if actual_path != download_path:
-                            download_path = actual_path
-                        
-                        download_success = True
-                        break
-                    else:
-                        logger.error(f"❌ Downloaded file is 0 bytes")
-                        try:
-                            os.remove(actual_path)
-                        except:
-                            pass
-                else:
-                    logger.error(f"❌ Download returned invalid path")
-                
-                if attempt < max_download_attempts:
-                    await asyncio.sleep(3)
-                    
-            except Exception as e:
-                logger.error(f"❌ Download exception: {e}")
-                if attempt < max_download_attempts:
-                    await asyncio.sleep(3)
-        
-        if not download_success:
-            logger.error("❌ Download failed after all attempts")
-            return await download_msg.edit(
-                "❌ **Download Failed**\n"
-                "Telegram failed to download the file.\n"
-                "Please resend the file or try again later."
-            )
+        if not os.path.exists(download_path):
+            logger.error(f"Download failed: File not found at {download_path}")
+            return await download_msg.edit("❌ **Download Failed:** File not found.")
+
+        logger.info(f"Downloaded: {download_path} ({file_size} bytes)")
 
         # Check if video processing needed
         is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v']
         
         if duration == 0 and is_video:
             duration = await get_video_duration(download_path)
-            logger.info(f"⏱️ Detected video duration: {duration}s")
+            logger.info(f"Detected video duration: {duration}s")
         
-        # Show initial processing message
-        await download_msg.edit("**⚙️ Processing: Starting...**")
+        await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
 
         # ============================================
-        # FIND FONT - WITH MULTIPLE FALLBACKS
+        # FIXED: ONE PASS FFMPEG - METADATA + WATERMARK
+        # NO DOUBLE ENCODING - OPTIMIZED SIZE
         # ============================================
+        
+        # Find ZURAMBI font
         font_path = None
         font_paths_to_try = [
-            "helper/ZURAMBI.ttf",
-            "/app/helper/ZURAMBI.ttf",
             "/usr/share/fonts/truetype/custom/zurambi.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
         ]
-        
         for fp in font_paths_to_try:
             if os.path.exists(fp):
                 font_path = fp
-                logger.info(f"✅ Using font: {font_path}")
+                logger.info(f"Using font: {font_path}")
                 break
         
+        if not font_path:
+            font_path = "/helper/ZURAMBI.ttf"
+            logger.warning(f"ZURAMBI font not found, using fallback: {font_path}")
+        
         # ============================================
-        # WATERMARK SETTINGS - ESCAPE SPECIAL CHARS
+        # FIXED WATERMARK: ZURAMBI, WHITE, BOLD, SMALL, TOP-LEFT
+        # Position: x=10, y=10 (stuck to top-left corner)
+        # Size: 20 (small)
         # ============================================
         watermark_text = "ANIME ATLAS"
-        
-        # Build drawtext filter only if we have a font
-        drawtext_filter = None
-        if font_path:
-            # Escape the font path for FFmpeg
-            escaped_font_path = font_path.replace('\\', '\\\\').replace(':', '\\:')
-            drawtext_filter = (
-                f"drawtext=text='{watermark_text}':"
-                f"fontfile='{escaped_font_path}':"
-                f"fontsize=10:"
-                f"fontcolor=white:"
-                f"x=1:"
-                f"y=1"
-            )
-            logger.info(f"🎨 Watermark enabled with font: {font_path}")
-        else:
-            logger.warning("⚠️ No font found - proceeding without watermark")
+        drawtext_filter = (
+            f"drawtext=text='{watermark_text}':"
+            f"fontfile={font_path}:"
+            f"fontsize=20:"
+            f"fontcolor=white:"
+            f"x=10:"
+            f"y=10:"
+            f"borderw=2:"
+            f"bordercolor=black"
+        )
 
-        # ============================================
-        # OPTIMIZED FFMPEG SETTINGS - PROGRESSIVE FALLBACK
-        # Strategy 1: Best quality (CRF 18)
-        # Strategy 2: Balanced (CRF 23)
-        # Strategy 3: Simple copy with metadata only
-        # ============================================
-        
-        encoding_strategies = []
+        # Build FFmpeg command - ONE PASS ONLY
+        cmd = ['ffmpeg', '-i', download_path]
         
         if is_video:
-            # Strategy 1: Near-lossless with watermark (if font available)
-            if drawtext_filter:
-                encoding_strategies.append({
-                    'name': 'Near-Lossless + Watermark',
-                    'params': [
-                        '-vf', drawtext_filter,
-                        '-c:v', 'libx264',
-                        '-preset', 'ultrafast',
-                        '-crf', '18',
-                        '-pix_fmt', 'yuv420p',
-                        '-c:a', 'copy',
-                        '-c:s', 'copy',
-                        '-map', '0',
-                        '-movflags', '+faststart',
-                        '-max_muxing_queue_size', '9999',
-                    ]
-                })
-            
-            # Strategy 2: Balanced quality with watermark
-            if drawtext_filter:
-                encoding_strategies.append({
-                    'name': 'Balanced + Watermark',
-                    'params': [
-                        '-vf', drawtext_filter,
-                        '-c:v', 'libx264',
-                        '-preset', 'ultrafast',
-                        '-crf', '23',
-                        '-pix_fmt', 'yuv420p',
-                        '-c:a', 'copy',
-                        '-c:s', 'copy',
-                        '-map', '0',
-                        '-movflags', '+faststart',
-                    ]
-                })
-            
-            # Strategy 3: Copy streams (no re-encoding, no watermark)
-            encoding_strategies.append({
-                'name': 'Stream Copy (No Watermark)',
-                'params': [
-                    '-c', 'copy',
-                    '-map', '0',
-                ]
-            })
+            # ============================================
+            # FIXED: OPTIMIZED ENCODING - PREVENT FILE BLOAT
+            # CRF 27: Good quality, smaller file size
+            # Preset veryfast: Fast encoding
+            # Audio: Copy (no re-encode)
+            # ============================================
+            cmd.extend([
+                '-vf', drawtext_filter,
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '27',
+                '-c:a', 'copy',
+                '-c:s', 'copy',
+                '-map', '0',
+                '-movflags', '+faststart',
+                '-max_muxing_queue_size', '9999',
+                # Metadata
+                '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
+                '-metadata', 'artist=Anime Atlas',
+                '-metadata', 'author=Anime Atlas',
+                '-metadata:s:v', 'title=Join Anime Atlas',
+                '-metadata:s:a', 'title=Anime Atlas',
+            ])
         else:
-            # Non-video: just copy
-            encoding_strategies.append({
-                'name': 'Stream Copy',
-                'params': [
-                    '-c', 'copy',
-                    '-map', '0',
-                ]
-            })
+            # Non-video: just copy and add metadata
+            cmd.extend([
+                '-c', 'copy',
+                '-map', '0',
+                '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
+                '-metadata', 'artist=Anime Atlas',
+                '-metadata', 'author=Anime Atlas',
+            ])
         
-        # Metadata to add
-        metadata_params = [
-            '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
-            '-metadata', 'artist=Anime Atlas',
-            '-metadata', 'author=Anime Atlas',
-            '-metadata:s:v', 'title=Join Anime Atlas',
-            '-metadata:s:a', 'title=Anime Atlas',
-            '-metadata:s:s', 'title=Anime Atlas',
-        ]
+        cmd.extend(['-y', '-progress', 'pipe:2', output_path])
 
-        # ============================================
-        # TRY EACH ENCODING STRATEGY UNTIL ONE WORKS
-        # ============================================
-        ffmpeg_success = False
-        
-        for strategy_num, strategy in enumerate(encoding_strategies, 1):
-            logger.info(f"🎬 Trying Strategy {strategy_num}/{len(encoding_strategies)}: {strategy['name']}")
-            
-            # Build command
-            cmd = ['ffmpeg', '-i', download_path]
-            cmd.extend(strategy['params'])
-            cmd.extend(metadata_params)
-            cmd.extend(['-y', output_path])
-            
-            logger.info(f"Command: {' '.join(cmd)}")
-            
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
+        logger.info(f"FFmpeg command: {' '.join(cmd)}")
 
-                # ALWAYS monitor progress for video files
-                progress_task = None
-                if is_video and duration > 0:
-                    logger.info(f"📊 Starting progress monitor for {duration}s video (Strategy: {strategy['name']})")
-                    # Start monitoring immediately
-                    progress_task = asyncio.create_task(
-                        monitor_ffmpeg_progress(process, download_msg, duration, strategy['name'])
-                    )
-                else:
-                    # For non-video or unknown duration, show simple processing message
-                    await download_msg.edit(f"**⚙️ Processing: {strategy['name']}...**")
-                
-                # Wait for FFmpeg to complete
-                returncode = await process.wait()
-                
-                # Cancel progress monitoring if it's still running
-                if progress_task and not progress_task.done():
-                    progress_task.cancel()
-                    try:
-                        await progress_task
-                    except asyncio.CancelledError:
-                        pass
-                
-                logger.info(f"FFmpeg completed with return code: {returncode}")
-                
-                # Check if successful
-                if returncode == 0 and os.path.exists(output_path):
-                    output_size = os.path.getsize(output_path)
-                    if output_size > 0:
-                        logger.info(f"✅ Strategy '{strategy['name']}' succeeded: {humanbytes(output_size)}")
-                        ffmpeg_success = True
-                        break
-                    else:
-                        logger.error(f"❌ Strategy '{strategy['name']}' produced 0-byte file")
-                else:
-                    # Read stderr to see what went wrong
-                    stderr_data = await process.stderr.read()
-                    error_msg = stderr_data.decode()[:500]
-                    logger.error(f"❌ Strategy '{strategy['name']}' failed (code {returncode}): {error_msg}")
-                
-                # Clean up failed output
-                if os.path.exists(output_path):
-                    try:
-                        os.remove(output_path)
-                        logger.info(f"Cleaned up failed output: {output_path}")
-                    except:
-                        pass
-                
-            except Exception as e:
-                logger.error(f"❌ Strategy '{strategy['name']}' exception: {e}")
-                traceback.print_exc()
-        
-        # If all strategies failed, show detailed error
-        if not ffmpeg_success:
-            logger.error("❌ All encoding strategies failed")
-            return await download_msg.edit(
-                "**❌ Processing Failed**\n"
-                "All encoding attempts failed. This could be due to:\n"
-                "• Corrupted input file\n"
-                "• Missing FFmpeg installation\n"
-                "• Incompatible video codec\n\n"
-                "Please try a different file or contact support."
+        # Run FFmpeg
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        if is_video and duration > 0:
+            progress_task = asyncio.create_task(
+                monitor_ffmpeg_progress(process, download_msg, duration, "Processing")
             )
+        
+        await process.wait()
+        
+        if process.returncode != 0:
+            stderr = await process.stderr.read()
+            error_msg = stderr.decode()
+            logger.error(f"FFmpeg error (code {process.returncode}): {error_msg}")
+            
+            if not os.path.exists(output_path):
+                if os.path.exists(download_path):
+                    logger.warning("FFmpeg failed, using original file")
+                    output_path = download_path
+                else:
+                    return await download_msg.edit(
+                        f"**❌ Processing Failed**\n"
+                        f"FFmpeg error code: {process.returncode}"
+                    )
 
-        # ============================================
-        # FINAL VERIFICATION
-        # ============================================
-        if not os.path.exists(output_path):
-            logger.error("❌ Output file missing")
-            return await download_msg.edit("❌ **Processing Error:** Output file missing.")
+        logger.info(f"FFmpeg completed: {output_path}")
         
         final_file_size = os.path.getsize(output_path)
-        if final_file_size == 0:
-            logger.error("❌ Output file is 0 bytes")
-            return await download_msg.edit("❌ **Processing Error:** Output file is empty.")
-        
-        logger.info(f"✅ Final output verified: {humanbytes(final_file_size)}")
-        
-        # Log size comparison
-        size_increase = final_file_size - file_size
-        size_ratio = (final_file_size / file_size) * 100
-        logger.info(f"📊 Size: {humanbytes(file_size)} → {humanbytes(final_file_size)} (+{humanbytes(size_increase)}, {size_ratio:.1f}%)")
+        logger.info(f"Original size: {humanbytes(file_size)}, Final size: {humanbytes(final_file_size)}")
 
-        # Check file size limit (4GB)
-        if final_file_size > 4000 * 1024 * 1024:
+        # Check file size limit
+        if final_file_size > 2000 * 1024 * 1024:
             return await download_msg.edit(
-                "**❌ File too large (>4GB)**\n"
-                "Telegram has a file size limit of 4GB."
+                "**❌ File too large (>2GB)**\n"
+                "Telegram has a file size limit of 2GB."
             )
 
-        # ============================================
-        # PREPARE CAPTION AND THUMBNAIL
-        # ============================================
-        await download_msg.edit("**📤 Uploading...**")
-        
+        # Get caption and thumbnail
         c_caption = await ZoroBhaiya.get_caption(message.chat.id)
         c_thumb = await ZoroBhaiya.get_thumbnail(message.chat.id)
 
@@ -662,9 +495,9 @@ async def start_processing(client, message):
                 logger.error(f"Thumbnail extraction error: {e}")
                 thumb_path = None
 
-        # ============================================
-        # UPLOAD WITH CORRECT FILENAME
-        # ============================================
+        # Upload
+        await download_msg.edit("**📤 Uploading...**")
+        
         try:
             upload_start = time.time()
             
@@ -674,7 +507,7 @@ async def start_processing(client, message):
                     document=output_path,
                     thumb=thumb_path,
                     caption=caption,
-                    file_name=renamed_file_name,
+                    file_name=renamed_file_name,  # FIXED: Use clean filename
                     force_document=True,
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
@@ -685,7 +518,7 @@ async def start_processing(client, message):
                     video=output_path,
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,
+                    file_name=renamed_file_name,  # FIXED: Use clean filename
                     duration=int(duration),
                     supports_streaming=True,
                     progress=progress_for_pyrogram,
@@ -697,17 +530,17 @@ async def start_processing(client, message):
                     audio=output_path,
                     caption=caption,
                     thumb=thumb_path,
-                    file_name=renamed_file_name,
+                    file_name=renamed_file_name,  # FIXED: Use clean filename
                     duration=int(duration),
                     progress=progress_for_pyrogram,
                     progress_args=("**📤 Uploading...**", download_msg, upload_start),
                 )
             
             await download_msg.delete()
-            logger.info(f"✅ Upload completed: {renamed_file_name}")
+            logger.info(f"Upload completed: {renamed_file_name}")
             
         except Exception as e:
-            logger.error(f"❌ Upload error: {e}")
+            logger.error(f"Upload error: {e}")
             traceback.print_exc()
             error_msg = str(e)
             if len(error_msg) > 100:
@@ -715,7 +548,7 @@ async def start_processing(client, message):
             await download_msg.edit(f"**❌ Upload Failed:** {error_msg}")
 
     except Exception as e:
-        logger.error(f"❌ Processing error: {e}")
+        logger.error(f"Processing error: {e}")
         traceback.print_exc()
         if download_msg:
             try:
@@ -735,6 +568,6 @@ async def start_processing(client, message):
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                    logger.info(f"🗑️ Cleaned up: {path}")
+                    logger.info(f"Cleaned up: {path}")
                 except Exception as e:
                     logger.error(f"Cleanup error for {path}: {e}")
