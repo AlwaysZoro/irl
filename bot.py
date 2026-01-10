@@ -15,22 +15,21 @@ import pyromod
 # Explicitly set the channel ID fix
 pyrogram.utils.MIN_CHANNEL_ID = -1003512136864
 
-# Enhanced Logging Setup
+# Minimal Logging Setup - Only Important Messages
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log")
-    ]
+    level=logging.ERROR,
+    format="%(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
 )
 
-# Reduce pyrogram noise
-logging.getLogger("pyrogram").setLevel(logging.WARNING)
-logging.getLogger("pyrogram.session.session").setLevel(logging.WARNING)
-logging.getLogger("pyrogram.connection.connection").setLevel(logging.WARNING)
+# Silence all library noise
+logging.getLogger("pyrogram").setLevel(logging.ERROR)
+logging.getLogger("pyrogram.session").setLevel(logging.ERROR)
+logging.getLogger("pyrogram.connection").setLevel(logging.ERROR)
+logging.getLogger("aiohttp").setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class Bot(Client):
     def __init__(self):
@@ -56,10 +55,7 @@ class Bot(Client):
         bind_address = "0.0.0.0"
         await web.TCPSite(app, bind_address, Config.PORT).start()
         
-        logger.info(f"✅ {me.first_name} BOT Started Successfully!")
-        logger.info(f"🤖 Bot Username: @{me.username}")
-        logger.info(f"📦 Pyrogram Version: {__version__}")
-        logger.info(f"🌐 Web Server Running on Port: {Config.PORT}")
+        logger.info(f"✅ Bot Started: @{me.username}")
 
         if Config.LOG_CHANNEL:
             try:
@@ -74,12 +70,12 @@ class Bot(Client):
                     f"**📦 Version:** `{__version__}`\n"
                     f"**⚙️ Status:** `Running`"
                 )
-            except Exception as e:
-                logger.error(f"❌ Log Channel Error: {e}")
+            except:
+                pass
 
     async def stop(self, *args):
         await super().stop()
-        logger.info("🛑 Bot Stopped")
+        logger.info("Bot Stopped")
 
 bot_instance = Bot()
 
@@ -87,12 +83,11 @@ async def main():
     """Main async entry point"""
     try:
         await bot_instance.start()
-        logger.info("🚀 Bot is running...")
         await idle()
     except KeyboardInterrupt:
-        logger.info("⚠️ Received stop signal")
+        pass
     except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
     finally:
         await bot_instance.stop()
 
