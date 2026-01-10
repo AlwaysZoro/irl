@@ -1,8 +1,5 @@
 import motor.motor_asyncio
 from config import Config
-import logging
-
-logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, uri, database_name):
@@ -25,7 +22,6 @@ class Database:
             "thumbnail": None,
             "media_preference": None
         })
-        logger.info(f"✅ New user added: {user_id}")
 
     async def total_users_count(self):
         """Get total users count"""
@@ -39,7 +35,6 @@ class Database:
     async def delete_user(self, user_id):
         """Delete user from database"""
         await self.users.delete_one({"_id": user_id})
-        logger.info(f"🗑️ User deleted: {user_id}")
 
     async def set_format_template(self, user_id, format_template):
         """Set auto rename format template"""
@@ -48,7 +43,6 @@ class Database:
             {"$set": {"format_template": format_template}},
             upsert=True
         )
-        logger.info(f"✅ Format template set for user {user_id}: {format_template}")
 
     async def get_format_template(self, user_id):
         """Get auto rename format template"""
@@ -64,7 +58,6 @@ class Database:
             {"$set": {"caption": caption}},
             upsert=True
         )
-        logger.info(f"✅ Caption set for user {user_id}")
 
     async def get_caption(self, user_id):
         """Get custom caption"""
@@ -80,7 +73,6 @@ class Database:
             {"$set": {"thumbnail": file_id}},
             upsert=True
         )
-        logger.info(f"✅ Thumbnail set for user {user_id}")
 
     async def get_thumbnail(self, user_id):
         """Get custom thumbnail"""
@@ -96,7 +88,6 @@ class Database:
             {"$set": {"media_preference": media_type}},
             upsert=True
         )
-        logger.info(f"✅ Media preference set for user {user_id}: {media_type}")
 
     async def get_media_preference(self, user_id):
         """Get media upload preference"""
