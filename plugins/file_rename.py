@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(2)  # Max 2 concurrent
+PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -25,80 +25,112 @@ QUEUE_TASK_RUNNING = False
 renaming_operations = {}
 
 # ============================================
-# FIXED REGEX PATTERNS FOR ACCURATE EXTRACTION
+# FIXED REGEX PATTERNS - ORDER MATTERS
 # ============================================
-def extract_episode_number(filename):
-    """Extract episode number - prioritize standalone numbers"""
-    patterns = [
-        re.compile(r'[\s\-_\]](\d{3,4})[\s\-_\[]'),  # " 1155 " or "] 1155 ["
-        re.compile(r'^(\d{3,4})[\s\-_\[]'),  # Start: "1155 "
-        re.compile(r'[\s\-_](\d{3,4})$'),  # End: " 1155"
-        re.compile(r'[Ee][Pp]?[\s\-_]?(\d+)'),  # EP05, E05
-        re.compile(r'[Ee]pisode[\s\-_]?(\d+)'),  # Episode 05
-        re.compile(r'S\d+[Ee](\d+)'),  # S01E05
-        re.compile(r'[\s\-_](\d{1,3})[\s\-_\[]'),  # Generic: " 5 ["
-    ]
-    
-    for pattern in patterns:
-        match = pattern.search(filename)
-        if match:
-            return match.group(1)
-    return None
+# Pattern to extract episode number - IMPROVED
+EPISODE_PATTERNS = [
+    re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Space before/after: " 1155 " or " 1155["
+    re.compile(r'^(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # Start of string: "1155 " or "1155["
+    re.compile(r'[\]\)][\s\-_]?(\d{3,4})[\s\-_\[]', re.IGNORECASE),  # After bracket: "] 1155 "
+    re.compile(r'[Ee][Pp]?[\s\-_]?(\d+)', re.IGNORECASE),  # EP123, E123, ep 123
+    re.compile(r'[Ee]pisode[\s\-_]?(\d+)', re.IGNORECASE),  # Episode 123
+    re.compile(r'S\d+[Ee](\d+)', re.IGNORECASE),  # S01E12
+    re.compile(r'[\-_\s](\d{1,4})[\.\-_\s]*(?:v\d+)?$', re.IGNORECASE),  # End: "- 05" or " 05.mkv"
+]
 
-def extract_season_number(filename):
-    """Extract season number"""
-    patterns = [
-        re.compile(r'[Ss]eason[\s\-_]?(\d+)'),
-        re.compile(r'[Ss](\d+)[Ee]\d+'),
-        re.compile(r'[\s\-_][Ss](\d+)[\s\-_\[]'),
-    ]
-    
-    for pattern in patterns:
-        match = pattern.search(filename)
-        if match:
-            return match.group(1)
-    return None
+# Pattern to extract season number
+SEASON_PATTERNS = [
+    re.compile(r'[Ss]eason[\s\-_]?(\d+)', re.IGNORECASE),  # Season 1
+    re.compile(r'[Ss](\d+)[Ee]\d+', re.IGNORECASE),  # S01E12
+    re.compile(r'[\s\-_][Ss](\d+)[\s\-_\[]', re.IGNORECASE),  # " S1 " or " S1["
+]
 
-def extract_quality(filename):
-    """Extract quality - prioritize bracketed format"""
-    patterns = [
-        re.compile(r'\[(\d{3,4}[pP])\]'),  # [480p], [1080p]
-        re.compile(r'\((\d{3,4}[pP])\)'),  # (480p)
-        re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\[]'),  # 480p 
-        re.compile(r'\b(\d{3,4}[pP])\b'),  # 480p
-        re.compile(r'\b(4[Kk])\b'),  # 4K
-        re.compile(r'\b(2[Kk])\b'),  # 2K
-        re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b'),  # HDRIP
-    ]
+# Pattern to extract quality - FIXED
+QUALITY_PATTERNS = [
+    re.compile(r'\[(\d{3,4}[pP])\]', re.IGNORECASE),  # [480p], [1080p]
+    re.compile(r'\((\d{3,4}[pP])\)', re.IGNORECASE),  # (480p), (1080p)
+    re.compile(r'[\s\-_](\d{3,4}[pP])[\s\-_\[]', re.IGNORECASE),  # 480p , 1080p[
+    re.compile(r'\b(\d{3,4}[pP])\b', re.IGNORECASE),  # 480p, 1080p (word boundary)
+    re.compile(r'\b(4[Kk])\b', re.IGNORECASE),  # 4K
+    re.compile(r'\b(2[Kk])\b', re.IGNORECASE),  # 2K
+    re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b', re.IGNORECASE),  # HDRIP
+    re.compile(r'\b(4[Kk][Xx]26[45])\b', re.IGNORECASE),  # 4Kx264, 4Kx265
+]
+
+def extract_metadata_fast(filename):
+    """
+    OPTIMIZED: Extract all metadata in ONE pass
+    Returns: (episode, season, quality)
+    """
+    # Remove file extension for cleaner parsing
+    name_only = os.path.splitext(filename)[0]
     
-    for pattern in patterns:
-        match = pattern.search(filename)
+    episode = None
+    season = None
+    quality = None
+    
+    # Extract episode number - try patterns in order
+    for pattern in EPISODE_PATTERNS:
+        match = pattern.search(name_only)
+        if match:
+            episode = match.group(1)
+            break
+    
+    # Extract season number
+    for pattern in SEASON_PATTERNS:
+        match = pattern.search(name_only)
+        if match:
+            season = match.group(1)
+            break
+    
+    # Extract quality
+    for pattern in QUALITY_PATTERNS:
+        match = pattern.search(name_only)
         if match:
             quality = match.group(1)
+            # Normalize quality format
             if quality.lower() in ['4k', '2k']:
-                return quality.upper()
+                quality = quality.upper()
+            elif 'p' in quality.lower():
+                quality = quality.lower()  # 480p, 1080p
             elif 'hdrip' in quality.lower():
-                return 'HDRIP'
-            else:
-                return quality.lower()
-    return 'Unknown'
+                quality = 'HDRIP'
+            break
+    
+    # Set defaults for missing values
+    if not quality:
+        quality = 'Unknown'
+    
+    logger.info(f"Extracted from '{filename}': episode={episode}, season={season}, quality={quality}")
+    
+    return episode, season, quality
 
-async def get_video_bitrate(file_path):
-    """Get video bitrate using ffprobe"""
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=bit_rate", 
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            file_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await process.communicate()
-        bitrate = int(stdout.decode().strip())
-        return bitrate if bitrate > 0 else None
-    except:
-        return None
+def apply_rename_template(template, episode, season, quality):
+    """
+    FIXED: Apply template with proper placeholder replacement
+    """
+    result = template
+    
+    # Replace {episode} - keep as-is if found, otherwise remove placeholder
+    if '{episode}' in result:
+        if episode:
+            result = result.replace('{episode}', episode)
+        else:
+            # Remove placeholder if no episode found
+            result = result.replace('{episode}', 'XX')
+    
+    # Replace {season} - keep as-is if found, otherwise use default
+    if '{season}' in result:
+        if season:
+            result = result.replace('{season}', season.zfill(2))
+        else:
+            result = result.replace('{season}', '01')
+    
+    # Replace {quality}
+    if '{quality}' in result:
+        result = result.replace('{quality}', quality)
+    
+    return result
 
 async def queue_processor(client):
     """Background task that processes queue"""
@@ -121,11 +153,25 @@ async def auto_rename_files(client, message):
     global QUEUE_TASK_RUNNING
     
     user_id = message.from_user.id
-    format_template = await ZoroBhaiya.get_format_template(user_id)
-    if not format_template:
+    
+    try:
+        format_template = await ZoroBhaiya.get_format_template(user_id)
+        logger.info(f"User {user_id} format template: {format_template}")
+    except Exception as e:
+        logger.error(f"Error fetching format for user {user_id}: {e}")
+        format_template = None
+    
+    if not format_template or not format_template.strip():
+        logger.warning(f"User {user_id} has no format template set")
         return await message.reply_text(
-            "**Please Set An Auto Rename Format First Using /autorename**\n\n"
-            "Example: `/autorename [@Anime_Atlas] {episode} - One Piece [{quality}] [Sub]`"
+            "**❌ Please Set An Auto Rename Format First!**\n\n"
+            "**Use:** `/autorename [format]`\n\n"
+            "**Example:**\n"
+            "`/autorename [@Anime_Atlas] {episode} - One Piece [{quality}] [Sub]`\n\n"
+            "**Available Placeholders:**\n"
+            "• `{episode}` - Episode number\n"
+            "• `{season}` - Season number\n"
+            "• `{quality}` - Video quality\n\n"
         )
 
     if not QUEUE_TASK_RUNNING:
@@ -134,7 +180,6 @@ async def auto_rename_files(client, message):
     await QUEUE.put(message)
     position = QUEUE.qsize()
     
-    # Show queue position if more than 2 files
     if position > 2:
         await message.reply_text(
             f"**⏳ Added to Queue**\n"
@@ -199,16 +244,28 @@ async def start_processing(client, message):
     """Main processing function for files"""
     user_id = message.from_user.id
     download_path = None
-    renamed_path = None
-    processed_path = None
+    output_path = None
     thumb_path = None
     download_msg = None
     
     try:
-        format_template = await ZoroBhaiya.get_format_template(user_id)
+        # Get user settings
+        try:
+            format_template = await ZoroBhaiya.get_format_template(user_id)
+            logger.info(f"Processing file for user {user_id} with format: {format_template}")
+        except Exception as e:
+            logger.error(f"Error fetching format during processing for user {user_id}: {e}")
+            format_template = None
+        
+        if not format_template or not format_template.strip():
+            logger.error(f"Format lost during processing for user {user_id}")
+            return await message.reply_text(
+                "**❌ Error:** Format template lost during processing. Please set it again with `/autorename`"
+            )
+        
         media_preference = await ZoroBhaiya.get_media_preference(user_id)
 
-        # File Type & ID Logic
+        # Get file info
         if message.document:
             file_id = message.document.file_id
             file_name = message.document.file_name
@@ -236,217 +293,312 @@ async def start_processing(client, message):
         renaming_operations[file_id] = datetime.now()
 
         # ============================================
-        # FIXED: Extract metadata correctly
+        # FIXED: Extract metadata ONCE - FAST
         # ============================================
-        episode_number = extract_episode_number(file_name)
-        season_number = extract_season_number(file_name)
-        quality = extract_quality(file_name)
+        episode, season, quality = extract_metadata_fast(file_name)
         
-        logger.info(f"Extracted - Episode: {episode_number}, Season: {season_number}, Quality: {quality}")
-
         # ============================================
-        # FIXED: Replace placeholders correctly
+        # FIXED: Apply template correctly - NO CORRUPTION
         # ============================================
-        renamed_template = format_template
+        renamed_template = apply_rename_template(format_template, episode, season, quality)
         
-        if episode_number:
-            renamed_template = renamed_template.replace("{episode}", str(episode_number))
-        else:
-            renamed_template = renamed_template.replace("{episode}", "XX")
-        
-        if season_number:
-            renamed_template = renamed_template.replace("{season}", str(season_number).zfill(2))
-        else:
-            renamed_template = renamed_template.replace("{season}", "01")
-        
-        renamed_template = renamed_template.replace("{quality}", quality)
-
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
         
-        logger.info(f"Original: {file_name}")
-        logger.info(f"Renamed: {renamed_file_name}")
+        logger.info(f"📄 Original: {file_name}")
+        logger.info(f"📝 Renamed: {renamed_file_name}")
         
-        # Create unique paths
-        timestamp = int(time.time())
-        renamed_path = f"downloads/{timestamp}_{renamed_file_name}"
-        processed_path = f"Metadata/{timestamp}_{renamed_file_name}"
-        
+        # Create directories
         os.makedirs("downloads", exist_ok=True)
-        os.makedirs("Metadata", exist_ok=True)
-
+        
+        # Safe temp file paths
+        timestamp = int(time.time())
+        download_path = f"downloads/input_{timestamp}{file_extension}"
+        output_path = f"downloads/output_{timestamp}{file_extension}"
+        
         download_msg = await message.reply_text("🚀 **Starting Download...**")
 
-        # DOWNLOAD with progress
-        download_path = await client.download_media(
-            message,
-            file_name=renamed_path,
-            progress=progress_for_pyrogram,
-            progress_args=("**📥 Downloading...**", download_msg, time.time()),
-        )
+        # ============================================
+        # DOWNLOAD WITH VERIFICATION (3 ATTEMPTS)
+        # ============================================
+        max_download_attempts = 3
+        download_success = False
         
-        if not os.path.exists(renamed_path):
-            logger.error(f"Download failed: File not found at {renamed_path}")
-            return await download_msg.edit("❌ **Download Failed:** File not found.")
+        for attempt in range(1, max_download_attempts + 1):
+            try:
+                logger.info(f"📥 Download attempt {attempt}/{max_download_attempts}")
+                
+                actual_path = await client.download_media(
+                    message,
+                    file_name=download_path,
+                    progress=progress_for_pyrogram,
+                    progress_args=("**📥 Downloading...**", download_msg, time.time()),
+                )
+                
+                # Verify download
+                if actual_path and os.path.exists(actual_path):
+                    downloaded_size = os.path.getsize(actual_path)
+                    
+                    if downloaded_size > 0:
+                        logger.info(f"✅ Downloaded: {humanbytes(downloaded_size)}")
+                        
+                        # Update path if pyrogram saved elsewhere
+                        if actual_path != download_path:
+                            download_path = actual_path
+                        
+                        download_success = True
+                        break
+                    else:
+                        logger.error(f"❌ Downloaded file is 0 bytes")
+                        try:
+                            os.remove(actual_path)
+                        except:
+                            pass
+                else:
+                    logger.error(f"❌ Download returned invalid path")
+                
+                if attempt < max_download_attempts:
+                    await asyncio.sleep(3)
+                    
+            except Exception as e:
+                logger.error(f"❌ Download exception: {e}")
+                if attempt < max_download_attempts:
+                    await asyncio.sleep(3)
+        
+        if not download_success:
+            logger.error("❌ Download failed after all attempts")
+            return await download_msg.edit(
+                "❌ **Download Failed**\n"
+                "Telegram failed to download the file.\n"
+                "Please resend the file or try again later."
+            )
 
-        logger.info(f"Downloaded: {renamed_path} ({file_size} bytes)")
-
-        # --- FFMPEG PROCESSING ---
+        # Check if video processing needed
         is_video = media_type == "video" or file_extension.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v']
         
         if duration == 0 and is_video:
-            duration = await get_video_duration(renamed_path)
-            logger.info(f"Detected video duration: {duration}s")
+            duration = await get_video_duration(download_path)
+            logger.info(f"⏱️ Detected video duration: {duration}s")
         
         await download_msg.edit("**⚙️ Processing: Adding Metadata & Watermark...**")
 
-        # Metadata commands
-        metadata_cmd = [
+        # ============================================
+        # FIND FONT - WITH MULTIPLE FALLBACKS
+        # ============================================
+        font_path = None
+        font_paths_to_try = [
+            "helper/ZURAMBI.ttf",
+            "/app/helper/ZURAMBI.ttf",
+            "/usr/share/fonts/truetype/custom/zurambi.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        
+        for fp in font_paths_to_try:
+            if os.path.exists(fp):
+                font_path = fp
+                logger.info(f"✅ Using font: {font_path}")
+                break
+        
+        # ============================================
+        # WATERMARK SETTINGS - ESCAPE SPECIAL CHARS
+        # ============================================
+        watermark_text = "ANIME ATLAS"
+        
+        # Build drawtext filter only if we have a font
+        drawtext_filter = None
+        if font_path:
+            # Escape the font path for FFmpeg
+            escaped_font_path = font_path.replace('\\', '\\\\').replace(':', '\\:')
+            drawtext_filter = (
+                f"drawtext=text='{watermark_text}':"
+                f"fontfile='{escaped_font_path}':"
+                f"fontsize=10:"
+                f"fontcolor=white:"
+                f"x=1:"
+                f"y=1"
+            )
+            logger.info(f"🎨 Watermark enabled with font: {font_path}")
+        else:
+            logger.warning("⚠️ No font found - proceeding without watermark")
+
+        # ============================================
+        # OPTIMIZED FFMPEG SETTINGS - PROGRESSIVE FALLBACK
+        # Strategy 1: Best quality (CRF 18)
+        # Strategy 2: Balanced (CRF 23)
+        # Strategy 3: Simple copy with metadata only
+        # ============================================
+        
+        encoding_strategies = []
+        
+        if is_video:
+            # Strategy 1: Near-lossless with watermark (if font available)
+            if drawtext_filter:
+                encoding_strategies.append({
+                    'name': 'Near-Lossless + Watermark',
+                    'params': [
+                        '-vf', drawtext_filter,
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-crf', '18',
+                        '-pix_fmt', 'yuv420p',
+                        '-c:a', 'copy',
+                        '-c:s', 'copy',
+                        '-map', '0',
+                        '-movflags', '+faststart',
+                        '-max_muxing_queue_size', '9999',
+                    ]
+                })
+            
+            # Strategy 2: Balanced quality with watermark
+            if drawtext_filter:
+                encoding_strategies.append({
+                    'name': 'Balanced + Watermark',
+                    'params': [
+                        '-vf', drawtext_filter,
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-crf', '23',
+                        '-pix_fmt', 'yuv420p',
+                        '-c:a', 'copy',
+                        '-c:s', 'copy',
+                        '-map', '0',
+                        '-movflags', '+faststart',
+                    ]
+                })
+            
+            # Strategy 3: Copy streams (no re-encoding, no watermark)
+            encoding_strategies.append({
+                'name': 'Stream Copy (No Watermark)',
+                'params': [
+                    '-c', 'copy',
+                    '-map', '0',
+                ]
+            })
+        else:
+            # Non-video: just copy
+            encoding_strategies.append({
+                'name': 'Stream Copy',
+                'params': [
+                    '-c', 'copy',
+                    '-map', '0',
+                ]
+            })
+        
+        # Metadata to add
+        metadata_params = [
             '-metadata', 'title=Join Anime Atlas on Telegram For More Anime',
             '-metadata', 'artist=Anime Atlas',
             '-metadata', 'author=Anime Atlas',
             '-metadata:s:v', 'title=Join Anime Atlas',
             '-metadata:s:a', 'title=Anime Atlas',
-            '-metadata:s:s', 'title=Anime Atlas'
+            '-metadata:s:s', 'title=Anime Atlas',
         ]
 
         # ============================================
-        # WATERMARK: ZURAMBI FONT - STRICT SPECIFICATION
+        # TRY EACH ENCODING STRATEGY UNTIL ONE WORKS
         # ============================================
-        watermark_text = "ANIME ATLAS"
-        font_path = "helper/ZURAMBI.ttf"
-        fontsize = 10
-        x_gap = 1
-        y_gap = 1
+        ffmpeg_success = False
         
-        if not os.path.exists(font_path):
-            logger.error(f"CRITICAL: ZURAMBI font not found at {font_path}")
-            drawtext_filter = None
-        else:
-            # EXACT watermark specification as per requirements
-            drawtext_filter = (
-                f"drawtext=text='{watermark_text}':"
-                f"fontfile={font_path}:"
-                f"fontsize={fontsize}:"
-                f"fontcolor=white:"
-                f"x={x_gap}:"
-                f"y={y_gap}:"
-                f"bold=1"
-            )
-            logger.info(f"Watermark filter: {drawtext_filter}")
-
-        # ============================================
-        # ONE-PASS ENCODING WITH BITRATE MODE
-        # Maintain original quality, allow 5-10% size increase
-        # ============================================
-        target_bitrate = None
-        if is_video:
-            original_bitrate = await get_video_bitrate(renamed_path)
-            if original_bitrate:
-                # Target bitrate = original + 8% (allows 5-10% size increase)
-                target_bitrate = int(original_bitrate * 1.08)
-                logger.info(f"Original bitrate: {original_bitrate}, Target: {target_bitrate}")
-
-        # Build FFmpeg command - ONE PASS ONLY
-        cmd = ['ffmpeg', '-i', renamed_path]
-        
-        if is_video:
-            # Apply watermark filter if available
-            if drawtext_filter:
-                cmd.extend(['-vf', drawtext_filter])
+        for strategy_num, strategy in enumerate(encoding_strategies, 1):
+            logger.info(f"🎬 Trying Strategy {strategy_num}/{len(encoding_strategies)}: {strategy['name']}")
             
-            cmd.extend([
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',  # Fast processing
-            ])
+            # Build command
+            cmd = ['ffmpeg', '-i', download_path]
+            cmd.extend(strategy['params'])
+            cmd.extend(metadata_params)
+            cmd.extend(['-y', output_path])
             
-            # ============================================
-            # USE BITRATE MODE to maintain quality
-            # CRF 0 would be lossless but huge file
-            # Instead use bitrate control for quality preservation
-            # ============================================
-            if target_bitrate:
-                cmd.extend([
-                    '-b:v', str(target_bitrate),
-                    '-maxrate', str(int(target_bitrate * 1.2)),
-                    '-bufsize', str(int(target_bitrate * 2)),
-                ])
-            else:
-                # Fallback: use low CRF for high quality
-                cmd.extend(['-crf', '18'])  # High quality (18 is visually lossless)
+            logger.info(f"Command: {' '.join(cmd)}")
             
-            cmd.extend([
-                '-c:a', 'copy',  # Copy audio - no re-encode
-                '-c:s', 'copy',  # Copy subtitles - no re-encode
-                '-map', '0',  # Map all streams
-                '-movflags', '+faststart',  # Fast streaming start
-                '-max_muxing_queue_size', '9999'
-            ])
-        else:
-            # Non-video: just copy streams
-            cmd.extend(['-c', 'copy', '-map', '0'])
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
 
-        cmd.extend(metadata_cmd)
-        cmd.extend(['-y', '-progress', 'pipe:2', processed_path])
-
-        logger.info(f"FFmpeg command: {' '.join(cmd)}")
-
-        # Run FFmpeg asynchronously with progress monitoring
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-
-        if is_video and duration > 0:
-            progress_task = asyncio.create_task(
-                monitor_ffmpeg_progress(process, download_msg, duration, "Processing")
-            )
-        
-        await process.wait()
-        
-        if process.returncode != 0:
-            stderr = await process.stderr.read()
-            error_msg = stderr.decode()
-            logger.error(f"FFmpeg error (code {process.returncode}): {error_msg}")
-            
-            if not os.path.exists(processed_path):
-                if os.path.exists(renamed_path):
-                    logger.warning("FFmpeg failed, using original file")
-                    processed_path = renamed_path
-                else:
-                    return await download_msg.edit(
-                        f"**❌ Processing Failed**\n"
-                        f"FFmpeg error code: {process.returncode}\n"
-                        f"Check logs for details."
+                # Monitor progress only for first strategy
+                if strategy_num == 1 and is_video and duration > 0:
+                    progress_task = asyncio.create_task(
+                        monitor_ffmpeg_progress(process, download_msg, duration, f"Processing ({strategy['name']})")
                     )
-
-        logger.info(f"FFmpeg completed: {processed_path}")
-
-        # UPLOAD with progress
-        await download_msg.edit("**📤 Uploading...**")
+                
+                await process.wait()
+                
+                # Check if successful
+                if process.returncode == 0 and os.path.exists(output_path):
+                    output_size = os.path.getsize(output_path)
+                    if output_size > 0:
+                        logger.info(f"✅ Strategy '{strategy['name']}' succeeded: {humanbytes(output_size)}")
+                        ffmpeg_success = True
+                        break
+                    else:
+                        logger.error(f"❌ Strategy '{strategy['name']}' produced 0-byte file")
+                else:
+                    stderr = await process.stderr.read()
+                    error_msg = stderr.decode()[:500]
+                    logger.error(f"❌ Strategy '{strategy['name']}' failed: {error_msg}")
+                
+                # Clean up failed output
+                if os.path.exists(output_path):
+                    try:
+                        os.remove(output_path)
+                    except:
+                        pass
+                
+            except Exception as e:
+                logger.error(f"❌ Strategy '{strategy['name']}' exception: {e}")
+                traceback.print_exc()
         
-        final_file_path = processed_path if os.path.exists(processed_path) else renamed_path
-        final_file_size = os.path.getsize(final_file_path)
+        # If all strategies failed, show detailed error
+        if not ffmpeg_success:
+            logger.error("❌ All encoding strategies failed")
+            return await download_msg.edit(
+                "**❌ Processing Failed**\n"
+                "All encoding attempts failed. This could be due to:\n"
+                "• Corrupted input file\n"
+                "• Missing FFmpeg installation\n"
+                "• Incompatible video codec\n\n"
+                "Please try a different file or contact support."
+            )
 
+        # ============================================
+        # FINAL VERIFICATION
+        # ============================================
+        if not os.path.exists(output_path):
+            logger.error("❌ Output file missing")
+            return await download_msg.edit("❌ **Processing Error:** Output file missing.")
+        
+        final_file_size = os.path.getsize(output_path)
+        if final_file_size == 0:
+            logger.error("❌ Output file is 0 bytes")
+            return await download_msg.edit("❌ **Processing Error:** Output file is empty.")
+        
+        logger.info(f"✅ Final output verified: {humanbytes(final_file_size)}")
+        
         # Log size comparison
+        size_increase = final_file_size - file_size
         size_ratio = (final_file_size / file_size) * 100
-        logger.info(f"Size: {humanbytes(file_size)} → {humanbytes(final_file_size)} ({size_ratio:.1f}%)")
+        logger.info(f"📊 Size: {humanbytes(file_size)} → {humanbytes(final_file_size)} (+{humanbytes(size_increase)}, {size_ratio:.1f}%)")
 
-        # Check file size limit (4GB as per requirements)
+        # Check file size limit (4GB)
         if final_file_size > 4000 * 1024 * 1024:
             return await download_msg.edit(
                 "**❌ File too large (>4GB)**\n"
-                "Maximum file size supported is 4GB."
+                "Telegram has a file size limit of 4GB."
             )
 
-        # Get caption and thumbnail
+        # ============================================
+        # PREPARE CAPTION AND THUMBNAIL
+        # ============================================
+        await download_msg.edit("**📤 Uploading...**")
+        
         c_caption = await ZoroBhaiya.get_caption(message.chat.id)
         c_thumb = await ZoroBhaiya.get_thumbnail(message.chat.id)
 
-        # ============================================
-        # FIXED: Use renamed_file_name in caption
-        # ============================================
         caption = (
             c_caption.format(
                 filename=renamed_file_name,
@@ -475,17 +627,16 @@ async def start_processing(client, message):
                 logger.error(f"Thumbnail extraction error: {e}")
                 thumb_path = None
 
-        # Upload based on media type
+        # ============================================
+        # UPLOAD WITH CORRECT FILENAME
+        # ============================================
         try:
             upload_start = time.time()
             
-            # ============================================
-            # FIXED: Use renamed_file_name for upload
-            # ============================================
             if media_type == "document":
                 await client.send_document(
                     message.chat.id,
-                    document=final_file_path,
+                    document=output_path,
                     thumb=thumb_path,
                     caption=caption,
                     file_name=renamed_file_name,
@@ -496,7 +647,7 @@ async def start_processing(client, message):
             elif media_type == "video":
                 await client.send_video(
                     message.chat.id,
-                    video=final_file_path,
+                    video=output_path,
                     caption=caption,
                     thumb=thumb_path,
                     file_name=renamed_file_name,
@@ -508,7 +659,7 @@ async def start_processing(client, message):
             elif media_type == "audio":
                 await client.send_audio(
                     message.chat.id,
-                    audio=final_file_path,
+                    audio=output_path,
                     caption=caption,
                     thumb=thumb_path,
                     file_name=renamed_file_name,
@@ -518,10 +669,10 @@ async def start_processing(client, message):
                 )
             
             await download_msg.delete()
-            logger.info(f"Upload completed: {renamed_file_name}")
+            logger.info(f"✅ Upload completed: {renamed_file_name}")
             
         except Exception as e:
-            logger.error(f"Upload error: {e}")
+            logger.error(f"❌ Upload error: {e}")
             traceback.print_exc()
             error_msg = str(e)
             if len(error_msg) > 100:
@@ -529,7 +680,7 @@ async def start_processing(client, message):
             await download_msg.edit(f"**❌ Upload Failed:** {error_msg}")
 
     except Exception as e:
-        logger.error(f"Processing error: {e}")
+        logger.error(f"❌ Processing error: {e}")
         traceback.print_exc()
         if download_msg:
             try:
@@ -544,11 +695,11 @@ async def start_processing(client, message):
         if file_id in renaming_operations:
             del renaming_operations[file_id]
         
-        # Clean up all temporary files
-        for path in [download_path, renamed_path, processed_path, thumb_path]:
+        # Cleanup
+        for path in [download_path, output_path, thumb_path]:
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
-                    logger.info(f"Cleaned up: {path}")
+                    logger.info(f"🗑️ Cleaned up: {path}")
                 except Exception as e:
                     logger.error(f"Cleanup error for {path}: {e}")
