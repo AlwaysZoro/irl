@@ -1,11 +1,14 @@
 from pyrogram import Client, filters
 from helper.database import ZoroBhaiya
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 @Client.on_message(filters.private & filters.command("autorename"))
 async def auto_rename_command(client, message):
     user_id = message.from_user.id
 
-    # If no arguments, show current format
     if len(message.command) < 2:
         current_format = await ZoroBhaiya.get_format_template(user_id)
         if current_format:
@@ -14,7 +17,7 @@ async def auto_rename_command(client, message):
                 f"`{current_format}`\n\n"
                 f"**📝 To Change It:**\n"
                 f"`/autorename [new format]`\n\n"
-                f"**🔤 Available Placeholders:**\n"
+                f"**📤 Available Placeholders:**\n"
                 f"• `{{episode}}` - Episode number\n"
                 f"• `{{season}}` - Season number\n"
                 f"• `{{quality}}` - Video quality (1080p, 720p, 480p, 4K, etc.)\n\n"
@@ -25,7 +28,7 @@ async def auto_rename_command(client, message):
             return await message.reply_text(
                 "**🎬 Setup Auto Rename Format**\n\n"
                 "**📝 Usage:** `/autorename [format]`\n\n"
-                "**🔤 Available Placeholders:**\n"
+                "**📤 Available Placeholders:**\n"
                 "• `{episode}` - Episode number\n"
                 "• `{season}` - Season number\n"
                 "• `{quality}` - Video quality (1080p, 720p, 480p, 4K, etc.)\n\n"
@@ -36,10 +39,8 @@ async def auto_rename_command(client, message):
                 "**📚 For detailed guide, use:** `/tutorial`"
             )
 
-    # Extract the format from the command
     format_template = message.text.split(None, 1)[1].strip()
 
-    # Validate format is not empty
     if not format_template:
         return await message.reply_text(
             "**❌ Error: Format Cannot Be Empty!**\n\n"
@@ -47,11 +48,9 @@ async def auto_rename_command(client, message):
             "**Example:** `/autorename S{season}E{episode} [{quality}]`"
         )
 
-    # Save the format template to the database
     try:
         await ZoroBhaiya.set_format_template(user_id, format_template)
         
-        # Verify it was saved by reading it back
         saved_format = await ZoroBhaiya.get_format_template(user_id)
         if saved_format == format_template:
             await message.reply_text(
@@ -61,14 +60,13 @@ async def auto_rename_command(client, message):
                 f"**💡 Tip:** The bot will automatically extract episode, season, and quality from your files!"
             )
         else:
-            logger.error(f"Format verification failed for user {user_id}")
             await message.reply_text(
                 "**⚠️ Warning: Format Saved But Verification Failed**\n\n"
                 "Please try setting the format again.\n"
                 "If the issue persists, contact @AshuSupport"
             )
-        else:
-            await message.reply_text(
+    except Exception as e:
+        await message.reply_text(
             "**❌ Error Saving Format!**\n\n"
             "Something went wrong. Please try again.\n"
             "If the issue persists, contact @AshuSupport"
@@ -92,7 +90,6 @@ async def set_media_command(client, message):
 
     media_type = message.text.split(None, 1)[1].strip().lower()
     
-    # Validate media type
     valid_types = ["video", "document", "audio"]
     if media_type not in valid_types:
         return await message.reply_text(
@@ -104,7 +101,6 @@ async def set_media_command(client, message):
             f"**Example:** `/setmedia video`"
         )
 
-    # Save the preferred media type to the database
     try:
         await ZoroBhaiya.set_media_preference(user_id, media_type)
         await message.reply_text(
