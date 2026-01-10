@@ -8,7 +8,7 @@ class Config(object):
     BOT_TOKEN = os.environ.get("BOT_TOKEN", "") 
 
     # database config
-    DB_NAME = os.environ.get("DB_NAME","ZoroBhaiya")     
+    DB_NAME = os.environ.get("DB_NAME","AutoRename")     
     DB_URL  = os.environ.get("DB_URL","")
  
     # other configs
@@ -26,17 +26,14 @@ class Config(object):
 class Txt(object):
     # part of text configuration
         
-    START_TXT = """Hello {} 
+    START_TXT = """<b>Hello {} 
     
-➻ This Is An Advanced Rename Bot Modified for <b>Anime Atlas</b>.
+This Is An Advanced Rename Bot Modified for <b>Anime Atlas</b>.
     
-➻ I will automatically rename files, add "ANIME ATLAS" watermark to videos, and set metadata.
-    
-➻ Use /tutorial Command To Know How To Use Me.
+I will automatically rename files, add "ANIME ATLAS" watermark to videos, and set metadata.</b>
 
-<b>⚡ Processing Capacity:</b> 2 files simultaneously
-<b>📊 Queue System:</b> Enabled
-<b>📦 Max File Size:</b> 4GB
+<b>Processing Capacity: 3 files simultaneously</b>
+<b>Max File Size: 4GB</b>
 """
     
     FILE_NAME_TXT = """<b><u>SETUP AUTO RENAME FORMAT</u></b>
@@ -47,14 +44,13 @@ Use These Keywords To Setup Custom File Name
 ✔ `{quality}` :- To Replace Video Resolution
 ✔ `{season}` :- To Replace Season Number
 
-<b>➻ Example :</b> <code>/autorename Naruto Shippuden S{season}E{episode} [{quality}] [Dual Audio]</code>
+<b>Example :</b> <code>/autorename Naruto Shippuden S{season}E{episode} [{quality}] [Dual Audio]</code>
 
-<b>➻ Your Current Auto Rename Format :</b> <code>{format_template}</code> """
+<b>Your Current Auto Rename Format :</b> <code>{format_template}</code> """
     
     ABOUT_TXT = f"""<b>🤖 My Name :</b> Auto Rename Bot
 <b>📝 Language :</b> <a href='https://python.org'>Python 3</a>
 <b>📚 Library :</b> <a href='https://pyrogram.org'>Pyrogram 2.0</a>
-<b>🚀 Server :</b> <a href='https://heroku.com'>Heroku</a>
 <b>⚙️ Features :</b>
   • Auto Rename with Templates
   • Video Watermarking (ANIME ATLAS)
@@ -96,9 +92,9 @@ Use These Keywords To Setup Custom File Name
     
 If You Like My Bots & Projects, You Can 🎁 Donate Me Any Amount From 10 Rs Upto Your Choice.
     
-<b>My UPI - PandaWep@ybl</b> """
+<b>My UPI - KHELKHATAMBETA</b> """
     
-    HELP_TXT = """<b>Hey</b> {}
+    HELP_TXT = """<b>Hey {}</b>
     
 <b>⚙️ Bot Features:</b>
 - Auto rename files with custom format
