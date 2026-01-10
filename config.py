@@ -88,7 +88,7 @@ Use These Keywords To Setup Custom File Name
 ┣⪼ 🗃️ Size: {1} | {2}
 ┣⪼ ⏱️ Done : {0}%
 ┣⪼ 🚀 Speed: {3}/s
-┣⪼ ⏰ ETA: {4}
+┣⪼ ⏰ ETA: {4} (mm:ss)
 ╰━━━━━━━━━━━━━━━━━━➣ </b>"""
     
     
