@@ -7,7 +7,7 @@ import os, sys, time, asyncio, logging, datetime
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 ADMIN_USER_ID = Config.ADMIN
 
 is_restarting = False
