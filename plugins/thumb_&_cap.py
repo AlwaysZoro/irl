@@ -12,7 +12,7 @@ async def add_caption(client, message):
             "• `{filesize}` - File size\n"
             "• `{duration}` - Video duration\n\n"
             "**Example:**\n"
-            "`/set_caption 📕 Name: {filename}\n🔗 Size: {filesize}\n⏰ Duration: {duration}`"
+            "`/set_caption 📕 Name: {filename}\n📗 Size: {filesize}\n⏰ Duration: {duration}`"
         )
     caption = message.text.split(" ", 1)[1]
     await ZoroBhaiya.set_caption(message.from_user.id, caption=caption)
