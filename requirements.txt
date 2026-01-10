@@ -9,3 +9,4 @@ pytz
 humanize
 pyromod
 ffmpeg-python
+ffmpeg-normalize  # ADDED for better audio handling
