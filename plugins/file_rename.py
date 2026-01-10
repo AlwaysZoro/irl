@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # 3 parallel processes
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
 # ----------------------------
@@ -180,12 +180,12 @@ async def auto_rename_files(client, message):
     await QUEUE.put(message)
     position = QUEUE.qsize()
     
-    if position > 2:
+    if position > 3:
         await message.reply_text(
             f"**⏳ Added to Queue**\n"
-            f"**Position:** {position - 2}\n"
+            f"**Position:** {position - 3}\n"
             f"**Status:** Waiting for processing slot...\n"
-            f"**Currently Processing:** 2 files"
+            f"**Currently Processing:** 3 files"
         )
 
 async def get_video_duration(file_path):
@@ -209,36 +209,45 @@ async def monitor_ffmpeg_progress(process, download_msg, duration, operation="Pr
     """Monitor FFmpeg progress in real-time"""
     last_update = 0
     
-    while True:
-        line = await process.stderr.readline()
-        if not line:
-            break
-        
-        line_str = line.decode('utf-8', errors='ignore').strip()
-        
-        if "time=" in line_str and duration > 0:
-            current_time = time.time()
-            if current_time - last_update > 3:
-                try:
-                    time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
-                    if time_match:
-                        h, m, s = map(int, time_match.groups())
-                        seconds_done = h*3600 + m*60 + s
-                        percentage = min(int((seconds_done / duration) * 100), 100)
-                        
-                        bar_len = 20
-                        filled = int((percentage / 100) * bar_len)
-                        bar = "■ " * filled + "□" * (bar_len - filled)
-                        
-                        await download_msg.edit(
-                            f"**⚙️ {operation}...**\n\n"
-                            f"{bar}\n"
-                            f"**Progress:** {percentage}%\n"
-                            f"**Time Processed:** {seconds_done}/{int(duration)}s"
-                        )
-                        last_update = current_time
-                except Exception as e:
-                    logger.debug(f"Progress update error: {e}")
+    try:
+        while True:
+            line = await process.stderr.readline()
+            if not line:
+                break
+            
+            line_str = line.decode('utf-8', errors='ignore').strip()
+            
+            # Look for time information
+            if "time=" in line_str and duration > 0:
+                current_time = time.time()
+                if current_time - last_update > 2:  # Update every 2 seconds
+                    try:
+                        time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})', line_str)
+                        if time_match:
+                            h, m, s = map(int, time_match.groups())
+                            seconds_done = h*3600 + m*60 + s
+                            percentage = min(int((seconds_done / duration) * 100), 100)
+                            
+                            bar_len = 20
+                            filled = int((percentage / 100) * bar_len)
+                            bar = "■ " * filled + "□" * (bar_len - filled)
+                            
+                            try:
+                                await download_msg.edit(
+                                    f"**⚙️ {operation}**\n\n"
+                                    f"{bar}\n"
+                                    f"**Progress:** {percentage}%\n"
+                                    f"**Time Processed:** {seconds_done}/{int(duration)}s"
+                                )
+                                last_update = current_time
+                            except Exception as edit_error:
+                                # Message edit failed, continue monitoring
+                                logger.debug(f"Edit failed: {edit_error}")
+                                pass
+                    except Exception as e:
+                        logger.debug(f"Progress update error: {e}")
+    except Exception as e:
+        logger.error(f"Monitor error: {e}")
 
 async def start_processing(client, message):
     """Main processing function for files"""
@@ -520,13 +529,24 @@ async def start_processing(client, message):
                     stderr=asyncio.subprocess.PIPE
                 )
 
-                # Monitor progress only for first strategy
-                if strategy_num == 1 and is_video and duration > 0:
+                # ALWAYS monitor progress for video files
+                progress_task = None
+                if is_video and duration > 0:
+                    logger.info(f"📊 Starting progress monitor for {duration}s video")
                     progress_task = asyncio.create_task(
                         monitor_ffmpeg_progress(process, download_msg, duration, f"Processing ({strategy['name']})")
                     )
                 
+                # Wait for FFmpeg to complete
                 await process.wait()
+                
+                # Cancel progress monitoring if it's still running
+                if progress_task and not progress_task.done():
+                    progress_task.cancel()
+                    try:
+                        await progress_task
+                    except asyncio.CancelledError:
+                        pass
                 
                 # Check if successful
                 if process.returncode == 0 and os.path.exists(output_path):
