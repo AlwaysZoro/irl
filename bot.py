@@ -56,10 +56,10 @@ class Bot(Client):
         bind_address = "0.0.0.0"
         await web.TCPSite(app, bind_address, Config.PORT).start()
         
-        logger.info(f"✅ {me.first_name} BOT started successfully")
-        logger.info(f"Bot Username: @{me.username}")
-        logger.info(f"Pyrogram version: {__version__}")
-        logger.info(f"Web server running on port {Config.PORT}")
+        logger.info(f"✅ {me.first_name} BOT Started Successfully!")
+        logger.info(f"🤖 Bot Username: @{me.username}")
+        logger.info(f"📦 Pyrogram Version: {__version__}")
+        logger.info(f"🌐 Web Server Running on Port: {Config.PORT}")
 
         if Config.LOG_CHANNEL:
             try:
@@ -68,14 +68,18 @@ class Bot(Client):
                 time = curr.strftime("%I:%M:%S %p")
                 await self.send_message(
                     Config.LOG_CHANNEL,
-                    f"**__{me.mention} Is Restarted !!**\n\n📅 Date : `{date}`\n⏰ Time : `{time}`\n🔧 Version: {__version__}",
+                    f"**✅ {me.mention} Is Online!**\n\n"
+                    f"**📅 Date:** `{date}`\n"
+                    f"**⏰ Time:** `{time}`\n"
+                    f"**📦 Version:** `{__version__}`\n"
+                    f"**⚙️ Status:** `Running`"
                 )
             except Exception as e:
-                logger.error(f"Log Channel Error: {e}")
+                logger.error(f"❌ Log Channel Error: {e}")
 
     async def stop(self, *args):
         await super().stop()
-        logger.info("Bot Stopped")
+        logger.info("🛑 Bot Stopped")
 
 bot_instance = Bot()
 
@@ -83,12 +87,12 @@ async def main():
     """Main async entry point"""
     try:
         await bot_instance.start()
-        logger.info("Bot is running...")
+        logger.info("🚀 Bot is running...")
         await idle()
     except KeyboardInterrupt:
-        logger.info("Received stop signal")
+        logger.info("⚠️ Received stop signal")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"❌ Fatal error: {e}")
     finally:
         await bot_instance.stop()
 
