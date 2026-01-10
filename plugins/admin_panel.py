@@ -23,7 +23,12 @@ async def restart_bot(b, m):
             await restart_msg.edit_text("**✅ Bot Restarted Successfully!**\n\nBot will be back online in a few seconds.")
         except:
             pass
-        b.stop()
+        
+        try:
+            await b.stop()
+        except:
+            pass
+        
         time.sleep(2)
         os.execl(sys.executable, sys.executable, *sys.argv)
 
@@ -38,11 +43,10 @@ async def tutorial(bot, message):
             ),
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("📚 Full Tutorial", url="https://t.me/AshuSupport")]]
+                [[InlineKeyboardButton("📚 Full Tutorial", url="https://t.me/Sanji_Fr")]]
             ),
         )
     except Exception as e:
-        logger.error(f"Error in /tutorial: {e}")
         await message.reply_text(
             "**❌ Error**\n\n"
             "Unable to fetch tutorial. Please try again later."
@@ -51,7 +55,7 @@ async def tutorial(bot, message):
 @Client.on_message(filters.private & filters.command(["ping", "p"]))
 async def ping(_, message):
     start_t = time.time()
-    rm = await message.reply_text("**🏓 Pinging...**")
+    rm = await message.reply_text("**🔍 Pinging...**")
     end_t = time.time()
     time_taken_s = (end_t - start_t) * 1000
     await rm.edit(f"**🏓 Pong!**\n\n**⚡ Ping:** `{time_taken_s:.3f} ms`")
@@ -91,15 +95,17 @@ async def broadcast_handler(bot: Client, m: Message):
             await ZoroBhaiya.delete_user(user["_id"])
         done += 1
         
-        # Update every 20 users
         if not done % 20:
-            await sts_msg.edit(
-                f"**📢 Broadcast In Progress**\n\n"
-                f"**👥 Total Users:** `{total_users}`\n"
-                f"**✅ Completed:** `{done} / {total_users}`\n"
-                f"**🎯 Success:** `{success}`\n"
-                f"**❌ Failed:** `{failed}`"
-            )
+            try:
+                await sts_msg.edit(
+                    f"**📢 Broadcast In Progress**\n\n"
+                    f"**👥 Total Users:** `{total_users}`\n"
+                    f"**✅ Completed:** `{done} / {total_users}`\n"
+                    f"**🎯 Success:** `{success}`\n"
+                    f"**❌ Failed:** `{failed}`"
+                )
+            except:
+                pass
     
     completed_in = datetime.timedelta(seconds=int(time.time() - start_time))
     await sts_msg.edit(
