@@ -37,16 +37,31 @@ async def tutorial(bot, message):
     try:
         user_id = message.from_user.id
         format_template = await ZoroBhaiya.get_format_template(user_id)
+        
+        # Create tutorial text with proper format
+        tutorial_text = f"""**🎬 SETUP AUTO RENAME FORMAT**
+
+**Use these keywords to create your custom file name:**
+
+✅ `{{episode}}` - Episode Number
+✅ `{{quality}}` - Video Resolution
+✅ `{{season}}` - Season Number
+
+**📝 Example:**
+`/autorename Naruto Shippuden S{{season}}E{{episode}} [{{quality}}] [Dual]`
+
+**🔧 Your Current Format:**
+`{format_template if format_template else '❌ Not Set - Use: /autorename [format]'}`"""
+        
         await message.reply_text(
-            text=Txt.FILE_NAME_TXT.format(
-                format_template=format_template or "❌ Not Set - Use: /autorename [format]"
-            ),
+            text=tutorial_text,
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("📚 Full Tutorial", url="https://t.me/Sanji_Fr")]]
             ),
         )
     except Exception as e:
+        logger.error(f"Tutorial error: {e}")
         await message.reply_text(
             "**❌ Error**\n\n"
             "Unable to fetch tutorial. Please try again later."
