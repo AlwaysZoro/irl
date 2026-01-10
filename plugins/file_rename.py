@@ -10,24 +10,18 @@ import os
 import time
 import re
 import asyncio
-import traceback
-import math
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)  # Only log errors
+logger.setLevel(logging.ERROR)
 
-# --- QUEUE SYSTEM GLOBALS ---
-PROCESSING_SEMAPHORE = asyncio.Semaphore(3)  # 3 concurrent files
+# Queue system
+PROCESSING_SEMAPHORE = asyncio.Semaphore(3)
 QUEUE = asyncio.Queue()
 QUEUE_TASK_RUNNING = False
-# ----------------------------
-
 renaming_operations = {}
 
-# ============================================
-# REGEX PATTERNS FOR METADATA EXTRACTION
-# ============================================
+# Metadata extraction patterns
 EPISODE_PATTERNS = [
     re.compile(r'[\s\-_](\d{3,4})[\s\-_\[]', re.IGNORECASE),
     re.compile(r'^(\d{3,4})[\s\-_\[]', re.IGNORECASE),
@@ -52,7 +46,6 @@ QUALITY_PATTERNS = [
     re.compile(r'\b(4[Kk])\b', re.IGNORECASE),
     re.compile(r'\b(2[Kk])\b', re.IGNORECASE),
     re.compile(r'\b([Hh][Dd][Rr][Ii][Pp])\b', re.IGNORECASE),
-    re.compile(r'\b(4[Kk][Xx]26[45])\b', re.IGNORECASE),
 ]
 
 def extract_metadata_fast(filename):
@@ -63,21 +56,18 @@ def extract_metadata_fast(filename):
     season = None
     quality = None
     
-    # Extract episode
     for pattern in EPISODE_PATTERNS:
         match = pattern.search(name_only)
         if match:
             episode = match.group(1)
             break
     
-    # Extract season
     for pattern in SEASON_PATTERNS:
         match = pattern.search(name_only)
         if match:
             season = match.group(1)
             break
     
-    # Extract quality
     for pattern in QUALITY_PATTERNS:
         match = pattern.search(name_only)
         if match:
@@ -90,7 +80,6 @@ def extract_metadata_fast(filename):
                 quality = 'HDRIP'
             break
     
-    # Defaults
     if not season:
         season = '1'
     if not quality:
@@ -132,7 +121,6 @@ async def queue_processor(client):
             QUEUE.task_done()
         except Exception as e:
             logger.error(f"Queue error: {e}")
-            traceback.print_exc()
 
 @Client.on_message(filters.private & (filters.document | filters.video | filters.audio))
 async def auto_rename_files(client, message):
@@ -143,8 +131,7 @@ async def auto_rename_files(client, message):
     
     try:
         format_template = await ZoroBhaiya.get_format_template(user_id)
-    except Exception as e:
-        logger.error(f"Error fetching format for user {user_id}: {e}")
+    except Exception:
         format_template = None
     
     if not format_template or not format_template.strip():
@@ -153,7 +140,7 @@ async def auto_rename_files(client, message):
             "**📝 Use:** `/autorename [format]`\n\n"
             "**📌 Example:**\n"
             "`/autorename [@Anime_Atlas] {episode} - One Piece [{quality}] [Sub]`\n\n"
-            "**🔤 Available Placeholders:**\n"
+            "**📤 Available Placeholders:**\n"
             "• `{episode}` - Episode number\n"
             "• `{season}` - Season number\n"
             "• `{quality}` - Video quality\n\n"
@@ -188,8 +175,7 @@ async def get_video_duration(file_path):
         stdout, _ = await process.communicate()
         duration = float(stdout.decode().strip())
         return duration if duration > 0 else 0
-    except Exception as e:
-        logger.error(f"Error getting video duration: {e}")
+    except Exception:
         return 0
 
 async def monitor_ffmpeg_progress(process, status_msg, duration, operation="Processing"):
@@ -213,11 +199,9 @@ async def monitor_ffmpeg_progress(process, status_msg, duration, operation="Proc
                         seconds_done = h*3600 + m*60 + s
                         percentage = min(int((seconds_done / duration) * 100), 100)
                         
-                        # Progress bar
                         filled = int((percentage / 100) * 20)
                         bar = '▰' * filled + '▱' * (20 - filled)
                         
-                        # Format times
                         time_done = format_time(seconds_done)
                         time_total = format_time(duration)
                         
@@ -228,8 +212,8 @@ async def monitor_ffmpeg_progress(process, status_msg, duration, operation="Proc
                             f"**⏱️ Time:** {time_done} / {time_total}"
                         )
                         last_update = current_time
-                except Exception as e:
-                    logger.debug(f"Progress update error: {e}")
+                except Exception:
+                    pass
 
 async def start_processing(client, message):
     """Main processing function"""
@@ -243,13 +227,12 @@ async def start_processing(client, message):
         # Get user settings
         try:
             format_template = await ZoroBhaiya.get_format_template(user_id)
-        except Exception as e:
-            logger.error(f"Error fetching format: {e}")
+        except Exception:
             format_template = None
         
         if not format_template or not format_template.strip():
             return await message.reply_text(
-                "**❌ Error:** Format template lost during processing.\n"
+                "**❌ Error:** Format template not found.\n"
                 "Please set it again with `/autorename`"
             )
         
@@ -288,10 +271,8 @@ async def start_processing(client, message):
         _, file_extension = os.path.splitext(file_name)
         renamed_file_name = f"{renamed_template}{file_extension}"
         
-        # Create directories
         os.makedirs("downloads", exist_ok=True)
         
-        # File paths
         timestamp = int(time.time())
         download_path = f"downloads/{timestamp}_{file_name}"
         output_path = f"downloads/output_{timestamp}{file_extension}"
@@ -310,19 +291,15 @@ async def start_processing(client, message):
         if not os.path.exists(download_path):
             return await status_msg.edit_text("**❌ Download Failed**\n\nFile not found after download.")
 
-        # STEP 2: PROCESSING (Watermark & Metadata)
+        # STEP 2: PROCESSING
         is_video = is_video_file(download_path)
         
         if is_video:
-            
-            # Get duration if not available
             if duration == 0:
                 duration = await get_video_duration(download_path)
             
-            # Show processing message
             await status_msg.edit_text("**⚙️ Processing metadata and watermark...**\n\nThis may take a moment...")
 
-            # Find font
             font_path = "helper/ZURAMBI.ttf"
             if not os.path.exists(font_path):
                 font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -330,7 +307,6 @@ async def start_processing(client, message):
             if not os.path.exists(font_path):
                 font_path = "Arial"
             
-            # Watermark: Small, top-left, white, bold
             watermark_text = "ANIME ATLAS"
             drawtext_filter = (
                 f"drawtext=text='{watermark_text}':"
@@ -341,7 +317,6 @@ async def start_processing(client, message):
                 f"y=3"
             )
 
-            # FFmpeg command with CRF 23 for quality
             cmd = [
                 'ffmpeg', '-i', download_path,
                 '-vf', drawtext_filter,
@@ -361,7 +336,6 @@ async def start_processing(client, message):
                 '-y', '-progress', 'pipe:2', output_path
             ]
 
-            # Run FFmpeg with progress
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -375,7 +349,6 @@ async def start_processing(client, message):
             
             await process.wait()
             
-            # Check if processing was successful
             if process.returncode != 0 or not os.path.exists(output_path):
                 return await status_msg.edit_text(
                     "**❌ Video Processing Failed**\n\n"
@@ -385,7 +358,6 @@ async def start_processing(client, message):
             final_file_size = os.path.getsize(output_path)
             
         else:
-            # Non-video: Just add metadata
             await status_msg.edit_text("**⚙️ Processing metadata...**\n\nAlmost done...")
             
             cmd = [
@@ -411,7 +383,6 @@ async def start_processing(client, message):
             
             final_file_size = os.path.getsize(output_path)
 
-        # Check file size limit (2GB Telegram limit)
         if final_file_size > 2000 * 1024 * 1024:
             return await status_msg.edit_text(
                 "**❌ File Too Large**\n\n"
@@ -441,14 +412,12 @@ async def start_processing(client, message):
                     img = Image.open(thumb_path).convert("RGB")
                     img = img.resize((320, 320))
                     img.save(thumb_path, "JPEG")
-            except Exception as e:
-                logger.error(f"Thumbnail processing error: {e}")
+            except Exception:
                 thumb_path = None
         elif is_video and message.video and message.video.thumbs:
             try:
                 thumb_path = await client.download_media(message.video.thumbs[0].file_id)
-            except Exception as e:
-                logger.error(f"Thumbnail extraction error: {e}")
+            except Exception:
                 thumb_path = None
 
         # STEP 3: UPLOAD
@@ -492,15 +461,12 @@ async def start_processing(client, message):
                     progress_args=("**📤 Uploading...**", status_msg, upload_start),
                 )
             
-            # Delete status message after successful upload
             try:
                 await status_msg.delete()
             except:
                 pass
             
         except Exception as e:
-            logger.error(f"Upload error: {e}")
-            traceback.print_exc()
             error_msg = str(e)
             if len(error_msg) > 150:
                 error_msg = error_msg[:150] + "..."
@@ -511,8 +477,6 @@ async def start_processing(client, message):
             )
 
     except Exception as e:
-        logger.error(f"Processing error: {e}")
-        traceback.print_exc()
         if status_msg:
             try:
                 error_msg = str(e)
@@ -527,7 +491,6 @@ async def start_processing(client, message):
                 pass
 
     finally:
-        # Clean up
         if file_id in renaming_operations:
             del renaming_operations[file_id]
         
